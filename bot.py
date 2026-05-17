@@ -1,7 +1,3 @@
-"""
-Gemini AI Telegram Bot — Professional Edition
-"""
-
 import asyncio
 import logging
 import os
@@ -10,10 +6,8 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import aiohttp
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,26 +20,22 @@ MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "8192"))
 TELEGRAM_MAX_LENGTH = 4096
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    sys.exit("❌ TELEGRAM_TOKEN yoki GEMINI_API_KEY topilmadi!")
+    sys.exit("TELEGRAM_TOKEN yoki GEMINI_API_KEY topilmadi!")
 
 GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
-conversation_history: dict[int, list[dict]] = {}
+bot = Bot(token=TELEGRAM_TOKEN, parse_mode=types.ParseMode.HTML)
+dp = Dispatcher(bot, storage=MemoryStorage())
+
+conversation_history = {}
 
 
-# Render uchun health check server
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -111,55 +101,53 @@ async def ask_gemini(user_id, user_text):
     return ai_text
 
 
-@dp.message(CommandStart())
-async def cmd_start(message: Message):
+@dp.message_handler(commands=["start"])
+async def cmd_start(message: types.Message):
     await message.answer(
-        f"👋 Salom, <b>{message.from_user.full_name}</b>!\n\n"
-        "Men <b>Gemini AI</b> botman. Istalgan savol bering! 🧠\n\n"
-        "/new — Yangi suhbat\n/help — Yordam",
-        parse_mode="HTML",
+        f"Salom, <b>{message.from_user.full_name}</b>!\n\n"
+        "Men Gemini AI botman. Istalgan savol bering!\n\n"
+        "/new — Yangi suhbat\n/help — Yordam"
     )
 
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
+@dp.message_handler(commands=["help"])
+async def cmd_help(message: types.Message):
     await message.answer(
-        "🤖 <b>Yordam</b>\n\n"
-        "• Istalgan savol yuboring\n"
-        "• /new — tarixni tozalash\n"
-        "• /model — joriy model",
-        parse_mode="HTML",
+        "Yordam:\n\n"
+        "Istalgan savol yuboring\n"
+        "/new — tarixni tozalash\n"
+        "/model — joriy model"
     )
 
-@dp.message(Command("new"))
-async def cmd_new(message: Message):
+@dp.message_handler(commands=["new"])
+async def cmd_new(message: types.Message):
     clear_history(message.from_user.id)
-    await message.answer("🔄 Yangi suhbat boshlandi!")
+    await message.answer("Yangi suhbat boshlandi!")
 
-@dp.message(Command("model"))
-async def cmd_model(message: Message):
-    await message.answer(f"⚙️ Model: <code>{GEMINI_MODEL}</code>", parse_mode="HTML")
+@dp.message_handler(commands=["model"])
+async def cmd_model(message: types.Message):
+    await message.answer(f"Model: {GEMINI_MODEL}")
 
-@dp.message(F.text)
-async def ai_handler(message: Message):
+@dp.message_handler()
+async def ai_handler(message: types.Message):
     user_id = message.from_user.id
     if not message.text.strip():
         return
-    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    await bot.send_chat_action(message.chat.id, "typing")
     try:
         response = await ask_gemini(user_id, message.text.strip())
         for part in split_message(response):
             await message.reply(part)
     except asyncio.TimeoutError:
-        await message.reply("⏳ Vaqt tugadi. Qaytadan urinib ko'ring.")
+        await message.reply("Vaqt tugadi. Qaytadan urinib koring.")
     except Exception as e:
         logger.exception(e)
-        await message.reply("❌ Xatolik yuz berdi.")
+        await message.reply("Xatolik yuz berdi.")
 
 
 async def main():
     threading.Thread(target=run_health_server, daemon=True).start()
-    logger.info("🚀 Bot ishga tushdi!")
-    await dp.start_polling(bot)
+    logger.info("Bot ishga tushdi!")
+    await dp.start_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
