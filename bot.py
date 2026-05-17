@@ -6,6 +6,8 @@ import asyncio
 import logging
 import os
 import sys
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import aiohttp
 from aiogram import Bot, Dispatcher, types, F
@@ -34,22 +36,32 @@ GEMINI_URL = (
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bot.log", encoding="utf-8"),
-    ],
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-
 conversation_history: dict[int, list[dict]] = {}
+
+
+# Render uchun health check server
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args):
+        pass
+
+def run_health_server():
+    port = int(os.getenv("PORT", "8080"))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server.serve_forever()
 
 
 def get_history(user_id):
     return conversation_history.get(user_id, [])
-
 
 def add_to_history(user_id, role, text):
     if user_id not in conversation_history:
@@ -58,10 +70,8 @@ def add_to_history(user_id, role, text):
     if len(conversation_history[user_id]) > MAX_HISTORY * 2:
         conversation_history[user_id] = conversation_history[user_id][-MAX_HISTORY * 2:]
 
-
 def clear_history(user_id):
     conversation_history.pop(user_id, None)
-
 
 def split_message(text, limit=TELEGRAM_MAX_LENGTH):
     if len(text) <= limit:
@@ -77,7 +87,6 @@ def split_message(text, limit=TELEGRAM_MAX_LENGTH):
         parts.append(text[:split_at])
         text = text[split_at:].lstrip("\n")
     return parts
-
 
 async def ask_gemini(user_id, user_text):
     add_to_history(user_id, "user", user_text)
@@ -111,7 +120,6 @@ async def cmd_start(message: Message):
         parse_mode="HTML",
     )
 
-
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
     await message.answer(
@@ -122,17 +130,14 @@ async def cmd_help(message: Message):
         parse_mode="HTML",
     )
 
-
 @dp.message(Command("new"))
 async def cmd_new(message: Message):
     clear_history(message.from_user.id)
     await message.answer("🔄 Yangi suhbat boshlandi!")
 
-
 @dp.message(Command("model"))
 async def cmd_model(message: Message):
     await message.answer(f"⚙️ Model: <code>{GEMINI_MODEL}</code>", parse_mode="HTML")
-
 
 @dp.message(F.text)
 async def ai_handler(message: Message):
@@ -152,9 +157,9 @@ async def ai_handler(message: Message):
 
 
 async def main():
+    threading.Thread(target=run_health_server, daemon=True).start()
     logger.info("🚀 Bot ishga tushdi!")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
