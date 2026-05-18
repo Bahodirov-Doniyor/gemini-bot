@@ -1,71 +1,93 @@
 import asyncio
+import base64
 import logging
 import os
+import random
 import sys
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Optional
+from urllib.parse import quote
 
 import aiohttp
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart, Command
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Message, ChatPermissions
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import ChatPermissions, Message, URLInputFile
 from dotenv import load_dotenv
+
+# ══════════════════════════════════════
+# KONFIGURATSIYA
+# ══════════════════════════════════════
 
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", "20"))
-MAX_OUTPUT_TOKENS = int(os.getenv("MAX_OUTPUT_TOKENS", "8192"))
+TELEGRAM_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MAX_HISTORY: int = int(os.getenv("MAX_HISTORY", "20"))
+MAX_OUTPUT_TOKENS: int = int(os.getenv("MAX_OUTPUT_TOKENS", "8192"))
+OWNER_ID: int = int(os.getenv("OWNER_ID", "0"))
+PORT: int = int(os.getenv("PORT", "8080"))
+
 TELEGRAM_MAX_LENGTH = 4096
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 
 if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    sys.exit("TELEGRAM_TOKEN yoki GEMINI_API_KEY topilmadi!")
+    sys.exit("❌ TELEGRAM_TOKEN yoki GEMINI_API_KEY topilmadi! .env faylini tekshiring.")
 
 GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 )
 
-logging.basicConfig(level=logging.INFO)
+# ══════════════════════════════════════
+# LOGGING
+# ══════════════════════════════════════
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
+
+# ══════════════════════════════════════
+# BOT VA DISPATCHER
+# ══════════════════════════════════════
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
-conversation_history = {}
+
+# ══════════════════════════════════════
+# SUHBAT TARIXI (In-Memory)
+# ══════════════════════════════════════
+
+conversation_history: dict[int, list[dict]] = {}
 
 
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, format, *args):
-        pass
-
-def run_health_server():
-    port = int(os.getenv("PORT", "8080"))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
-    server.serve_forever()
-
-def get_history(user_id):
+def get_history(user_id: int) -> list[dict]:
     return conversation_history.get(user_id, [])
 
-def add_to_history(user_id, role, text):
+
+def add_to_history(user_id: int, role: str, parts: list[dict]) -> None:
     if user_id not in conversation_history:
         conversation_history[user_id] = []
-    conversation_history[user_id].append({"role": role, "parts": [{"text": text}]})
-    if len(conversation_history[user_id]) > MAX_HISTORY * 2:
-        conversation_history[user_id] = conversation_history[user_id][-MAX_HISTORY * 2:]
+    conversation_history[user_id].append({"role": role, "parts": parts})
+    max_entries = MAX_HISTORY * 2
+    if len(conversation_history[user_id]) > max_entries:
+        conversation_history[user_id] = conversation_history[user_id][-max_entries:]
 
-def clear_history(user_id):
+
+def clear_history(user_id: int) -> None:
     conversation_history.pop(user_id, None)
 
-def split_message(text, limit=TELEGRAM_MAX_LENGTH):
+
+# ══════════════════════════════════════
+# YORDAMCHI FUNKSIYALAR
+# ══════════════════════════════════════
+
+def split_message(text: str, limit: int = TELEGRAM_MAX_LENGTH) -> list[str]:
+    """Uzun xabarlarni Telegram limitiga bo'lib qaytaradi."""
     if len(text) <= limit:
         return [text]
     parts = []
@@ -75,35 +97,115 @@ def split_message(text, limit=TELEGRAM_MAX_LENGTH):
             break
         split_at = text.rfind("\n", 0, limit)
         if split_at == -1:
+            split_at = text.rfind(" ", 0, limit)
+        if split_at == -1:
             split_at = limit
-        parts.append(text[:split_at])
-        text = text[split_at:].lstrip("\n")
+        parts.append(text[:split_at].rstrip())
+        text = text[split_at:].lstrip()
     return parts
 
-async def ask_gemini(user_id, user_text):
-    add_to_history(user_id, "user", user_text)
+
+async def send_long_message(message: Message, text: str) -> None:
+    """Uzun matnni xavfsiz render bilan bo'lib yuboradi."""
+    for part in split_message(text):
+        if part.strip():
+            try:
+                await message.reply(part, parse_mode="Markdown")
+            except Exception:
+                await message.reply(part)
+
+
+async def is_user_admin(chat_id: int, user_id: int) -> bool:
+    """Foydalanuvchi guruhda admin yoki bot egasi ekanligini tekshiradi."""
+    if user_id == OWNER_ID:
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in ("administrator", "creator")
+    except Exception:
+        return False
+
+
+# ══════════════════════════════════════
+# GEMINI API
+# ══════════════════════════════════════
+
+async def ask_gemini(
+    user_id: int,
+    user_text: Optional[str],
+    media_bytes: Optional[bytes] = None,
+    mime_type: Optional[str] = None,
+) -> str:
+    """Gemini API so'rovi va xotira tizimini xavfsiz boshqarish."""
+    current_parts: list[dict] = []
+
+    if media_bytes and mime_type:
+        encoded = base64.b64encode(media_bytes).decode("utf-8")
+        current_parts.append({
+            "inlineData": {
+                "mimeType": mime_type,
+                "data": encoded,
+            }
+        })
+
+    text_content = user_text or "Ushbu faylni tahlil qilib, tushuntir."
+    current_parts.append({"text": text_content})
+
+    history = get_history(user_id)
+    full_contents = history + [{"role": "user", "parts": current_parts}]
+
     payload = {
-        "contents": get_history(user_id),
+        "contents": full_contents,
         "generationConfig": {
             "maxOutputTokens": MAX_OUTPUT_TOKENS,
-            "temperature": 0.9,
+            "temperature": 0.7,
         },
     }
-    timeout = aiohttp.ClientTimeout(total=60)
+
+    timeout = aiohttp.ClientTimeout(total=90)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(GEMINI_URL, json=payload, headers={"Content-Type": "application/json"}) as resp:
+        async with session.post(
+            GEMINI_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        ) as resp:
             if resp.status != 200:
+                error_body = await resp.text()
+                logger.error("Gemini API xatosi [%d]: %s", resp.status, error_body)
                 raise RuntimeError(f"API xatosi: {resp.status}")
             data = await resp.json()
+
     try:
-        ai_text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise RuntimeError("API dan kutilmagan javob.")
-    add_to_history(user_id, "model", ai_text)
+        ai_text: str = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        logger.error("Kutilmagan API javobi: %s", data)
+        raise RuntimeError("API dan kutilmagan javob formati.") from exc
+
+    # Xotira faqat javob muvaffaqiyatli bo'lsa yangilanadi
+    add_to_history(user_id, "user", [{"text": user_text or "[Media fayl]"}])
+    add_to_history(user_id, "model", [{"text": ai_text}])
     return ai_text
 
-def is_owner(user_id):
-    return user_id == OWNER_ID
+
+# ══════════════════════════════════════
+# HEALTH CHECK SERVER
+# ══════════════════════════════════════
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        pass
+
+
+def run_health_server() -> None:
+    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
+    logger.info("Health server %d portda ishlamoqda", PORT)
+    server.serve_forever()
 
 
 # ══════════════════════════════════════
@@ -111,77 +213,93 @@ def is_owner(user_id):
 # ══════════════════════════════════════
 
 @dp.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message) -> None:
+    name = message.from_user.full_name if message.from_user else "Foydalanuvchi"
     await message.answer(
-        f"Salom, <b>{message.from_user.full_name}</b>! 👋\n\n"
-        "🤖 Men <b>Gemini AI</b> botman!\n\n"
-        "📋 <b>Buyruqlar:</b>\n"
-        "/help — Barcha buyruqlar\n"
-        "/new — Yangi suhbat\n"
-        "/model — Joriy model",
-        parse_mode="HTML"
+        f"Salom, <b>{name}</b>! 👋\n\n"
+        "🤖 Men <b>Mukammal AI Botman</b> — ham super boshqaruvchi (Admin), ham aqlli AI!\n\n"
+        "<b>🎨 Generatsiya buyruqlari:</b>\n"
+        "🖼 <code>/imagine [tavsif]</code> — Rasm yaratish\n"
+        "🎬 <code>/video [tavsif]</code> — Video yaratish\n"
+        "🔊 <code>/audio [matn]</code> — Ovoz yaratish\n\n"
+        "📌 Guruh va kanallarda foydalanish buyruqlarini ko'rish uchun <code>/help</code> bosing.",
+        parse_mode="HTML",
     )
+
 
 @dp.message(Command("help"))
-async def cmd_help(message: Message):
+async def cmd_help(message: Message) -> None:
     await message.answer(
-        "📋 <b>Barcha buyruqlar:</b>\n\n"
-        "🤖 <b>AI:</b>\n"
-        "/new — Yangi suhbat boshlash\n"
-        "/model — Joriy model\n\n"
-        "👥 <b>Guruh/Kanal boshqaruvi:</b>\n"
-        "/ban @username — Foydalanuvchini bloklash\n"
-        "/unban @username — Blokdan chiqarish\n"
-        "/mute @username — Sukut qildirish\n"
-        "/unmute @username — Sukutdan chiqarish\n"
-        "/kick @username — Guruhdan chiqarish\n"
-        "/addadmin @username — Admin qilish\n"
-        "/removeadmin @username — Adminlikdan olish\n"
-        "/pin — Xabarni pin qilish\n"
-        "/unpin — Pin xabarni olish\n"
-        "/deltmsg — Xabarni o'chirish\n\n"
-        "📢 <b>Kanal:</b>\n"
-        "/post [kanal] [matn] — Kanalga post\n"
-        "/settitle [kanal] [nom] — Kanal nomini o'zgartirish\n"
-        "/setdesc [kanal] [tavsif] — Kanal tavsifini o'zgartirish\n"
-        "/invite [kanal] — Taklif havolasi\n\n"
-        "📊 <b>Ma'lumot:</b>\n"
-        "/info — Chat ma'lumotlari\n"
-        "/myid — Mening ID m",
-        parse_mode="HTML"
+        "📋 <b>Barcha buyruqlar ro'yxati:</b>\n\n"
+        "🤖 <b>AI va Media:</b>\n"
+        "🖼 <code>/imagine matn</code> — AI rasm yaratish\n"
+        "🎬 <code>/video matn</code> — Video animatsiya yaratish\n"
+        "🔊 <code>/audio matn</code> — Matnni audio o'girish\n"
+        "🔄 <code>/new</code> — Suhbat xotirasini tozalash\n"
+        "⚙️ <code>/model</code> — Joriy ishchi model\n\n"
+        "👥 <b>Guruh boshqaruvi (Faqat Adminlar):</b>\n"
+        "🚫 <code>/ban @username</code> — Bloklash (yoki reply)\n"
+        "✅ <code>/unban @username</code> — Blokdan chiqarish\n"
+        "🔇 <code>/mute</code> — Ovozni o'chirish (reply)\n"
+        "🔊 <code>/unmute</code> — Ovozni tiklash (reply)\n"
+        "👢 <code>/kick</code> — Guruhdan haydash (reply)\n"
+        "⭐ <code>/addadmin</code> — Adminlik berish (reply)\n"
+        "❌ <code>/removeadmin</code> — Adminlikdan olish (reply)\n"
+        "📌 <code>/pin</code> — Xabarni mustahkamlash (reply)\n"
+        "🔓 <code>/unpin</code> — Xabarni mustahkamlashdan olish\n"
+        "🗑️ <code>/deltmsg</code> — Xabarni o'chirish (reply)\n\n"
+        "📢 <b>Kanal boshqaruvi:</b>\n"
+        "📝 <code>/post @kanal matn</code> — Kanalga post yuborish\n"
+        "🏷️ <code>/settitle @kanal nom</code> — Kanal nomini o'zgartirish\n"
+        "ℹ️ <code>/setdesc @kanal tavsif</code> — Kanal tavsifini o'zgartirish\n"
+        "🔗 <code>/invite @kanal</code> — Maxsus taklif havolasi\n\n"
+        "📊 <b>Ma'lumotlar:</b>\n"
+        "🆔 <code>/myid</code> — Shaxsiy Telegram ID\n"
+        "📊 <code>/info</code> — Chat haqida ma'lumot",
+        parse_mode="HTML",
     )
 
+
 @dp.message(Command("new"))
-async def cmd_new(message: Message):
-    clear_history(message.from_user.id)
-    await message.answer("🔄 Yangi suhbat boshlandi!")
+async def cmd_new(message: Message) -> None:
+    if message.from_user:
+        clear_history(message.from_user.id)
+    await message.answer("🔄 Yangi suhbat boshlandi! Kontekst tozalandi.")
+
 
 @dp.message(Command("model"))
-async def cmd_model(message: Message):
-    await message.answer(f"⚙️ Model: <code>{GEMINI_MODEL}</code>", parse_mode="HTML")
+async def cmd_model(message: Message) -> None:
+    await message.answer(f"⚙️ Ishchi model: <code>{GEMINI_MODEL}</code>", parse_mode="HTML")
+
 
 @dp.message(Command("myid"))
-async def cmd_myid(message: Message):
-    await message.answer(f"🆔 Sizning ID ingiz: <code>{message.from_user.id}</code>", parse_mode="HTML")
+async def cmd_myid(message: Message) -> None:
+    user_id = message.from_user.id if message.from_user else "Noma'lum"
+    await message.answer(f"🆔 Sizning ID: <code>{user_id}</code>", parse_mode="HTML")
+
 
 @dp.message(Command("info"))
-async def cmd_info(message: Message):
+async def cmd_info(message: Message) -> None:
     chat = message.chat
     await message.answer(
         f"📊 <b>Chat ma'lumotlari:</b>\n"
         f"🆔 ID: <code>{chat.id}</code>\n"
         f"📝 Nom: {chat.title or chat.full_name}\n"
         f"📌 Tur: {chat.type}",
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
 # ══════════════════════════════════════
-# FOYDALANUVCHI BOSHQARUVI
+# FOYDALANUVCHI BOSHQARUVI (ADMIN)
 # ══════════════════════════════════════
 
 @dp.message(Command("ban"))
-async def cmd_ban(message: Message):
+async def cmd_ban(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        await message.reply("❌ Bu buyruqdan faqat guruh adminlari foydalana oladi.")
+        return
+
     if not message.reply_to_message and len(message.text.split()) < 2:
         await message.answer("❗ Foydalanish: /ban @username yoki xabarga reply qiling")
         return
@@ -195,12 +313,15 @@ async def cmd_ban(message: Message):
             user_id = user.id
             name = user.full_name
         await bot.ban_chat_member(message.chat.id, user_id)
-        await message.answer(f"🚫 <b>{name}</b> bloklandi!", parse_mode="HTML")
+        await message.answer(f"🚫 <b>{name}</b> guruhdan butunlay bloklandi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("unban"))
-async def cmd_unban(message: Message):
+async def cmd_unban(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if len(message.text.split()) < 2:
         await message.answer("❗ Foydalanish: /unban @username")
         return
@@ -212,10 +333,13 @@ async def cmd_unban(message: Message):
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("mute"))
-async def cmd_mute(message: Message):
+async def cmd_mute(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ Xabarga reply qiling")
+        await message.answer("❗ Mute qilish uchun xabarga reply qiling.")
         return
     try:
         user_id = message.reply_to_message.from_user.id
@@ -224,14 +348,17 @@ async def cmd_mute(message: Message):
             message.chat.id, user_id,
             permissions=ChatPermissions(can_send_messages=False)
         )
-        await message.answer(f"🔇 <b>{name}</b> sukut qildirildi!", parse_mode="HTML")
+        await message.answer(f"🔇 <b>{name}</b> vaqtincha yozish huquqidan mahrum qilindi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("unmute"))
-async def cmd_unmute(message: Message):
+async def cmd_unmute(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ Xabarga reply qiling")
+        await message.answer("❗ Unmute qilish uchun xabarga reply qiling.")
         return
     try:
         user_id = message.reply_to_message.from_user.id
@@ -245,26 +372,32 @@ async def cmd_unmute(message: Message):
                 can_add_web_page_previews=True
             )
         )
-        await message.answer(f"🔊 <b>{name}</b> sukutdan chiqarildi!", parse_mode="HTML")
+        await message.answer(f"🔊 <b>{name}</b> qayta yozish huquqiga ega bo'ldi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("kick"))
-async def cmd_kick(message: Message):
+async def cmd_kick(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ Xabarga reply qiling")
+        await message.answer("❗ Haydash uchun xabarga reply qiling.")
         return
     try:
         user_id = message.reply_to_message.from_user.id
         name = message.reply_to_message.from_user.full_name
         await bot.ban_chat_member(message.chat.id, user_id)
         await bot.unban_chat_member(message.chat.id, user_id)
-        await message.answer(f"👢 <b>{name}</b> guruhdan chiqarildi!", parse_mode="HTML")
+        await message.answer(f"👢 <b>{name}</b> guruhdan chiqarib yuborildi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("addadmin"))
-async def cmd_addadmin(message: Message):
+async def cmd_addadmin(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message and len(message.text.split()) < 2:
         await message.answer("❗ Foydalanish: /addadmin @username yoki xabarga reply qiling")
         return
@@ -283,25 +416,36 @@ async def cmd_addadmin(message: Message):
             can_delete_messages=True,
             can_manage_video_chats=True,
             can_restrict_members=True,
-            can_promote_members=False,
             can_change_info=True,
             can_invite_users=True,
             can_pin_messages=True
         )
-        await message.answer(f"⭐ <b>{name}</b> admin qilindi!", parse_mode="HTML")
+        await message.answer(f"⭐ <b>{name}</b> yangi admin etib tayinlandi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("removeadmin"))
-async def cmd_removeadmin(message: Message):
+async def cmd_removeadmin(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ Xabarga reply qiling")
+        await message.answer("❗ Adminlikdan olish uchun xabarga reply qiling.")
         return
     try:
         user_id = message.reply_to_message.from_user.id
         name = message.reply_to_message.from_user.full_name
-        await bot.promote_chat_member(message.chat.id, user_id)
-        await message.answer(f"❌ <b>{name}</b> adminlikdan olindi!", parse_mode="HTML")
+        await bot.promote_chat_member(
+            message.chat.id, user_id,
+            can_manage_chat=False,
+            can_delete_messages=False,
+            can_manage_video_chats=False,
+            can_restrict_members=False,
+            can_change_info=False,
+            can_invite_users=False,
+            can_pin_messages=False
+        )
+        await message.answer(f"❌ <b>{name}</b> adminlik huquqlaridan mahrum qilindi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
@@ -311,28 +455,36 @@ async def cmd_removeadmin(message: Message):
 # ══════════════════════════════════════
 
 @dp.message(Command("pin"))
-async def cmd_pin(message: Message):
+async def cmd_pin(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ Xabarga reply qiling")
+        await message.answer("❗ Pin qilish uchun xabarga reply qiling.")
         return
     try:
         await bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        await message.answer("📌 Xabar pin qilindi!")
+        await message.answer("📌 Xabar yuqoriga mustahkamlandi!")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
+
 
 @dp.message(Command("unpin"))
-async def cmd_unpin(message: Message):
+async def cmd_unpin(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     try:
         await bot.unpin_chat_message(message.chat.id)
-        await message.answer("📌 Pin xabar olindi!")
+        await message.answer("🔓 Pin xabar olib tashlandi!")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("deltmsg"))
-async def cmd_deltmsg(message: Message):
+async def cmd_deltmsg(message: Message) -> None:
+    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
+        return
     if not message.reply_to_message:
-        await message.answer("❗ O'chirmoqchi bo'lgan xabarga reply qiling")
+        await message.answer("❗ O'chirmoqchi bo'lgan xabarga reply qiling.")
         return
     try:
         await bot.delete_message(message.chat.id, message.reply_to_message.message_id)
@@ -346,33 +498,39 @@ async def cmd_deltmsg(message: Message):
 # ══════════════════════════════════════
 
 @dp.message(Command("post"))
-async def cmd_post(message: Message):
+async def cmd_post(message: Message) -> None:
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
     parts = message.text.split(maxsplit=2)
     if len(parts) < 3:
         await message.answer("❗ Foydalanish: /post @kanal Matn")
         return
     try:
-        channel = parts[1]
-        text = parts[2]
-        await bot.send_message(channel, text)
-        await message.answer("✅ Post yuborildi!")
+        await bot.send_message(parts[1], parts[2])
+        await message.answer("✅ Kanalga post yuborildi!")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("settitle"))
-async def cmd_settitle(message: Message):
+async def cmd_settitle(message: Message) -> None:
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
     parts = message.text.split(maxsplit=2)
     if len(parts) < 3:
         await message.answer("❗ Foydalanish: /settitle @kanal Yangi nom")
         return
     try:
         await bot.set_chat_title(parts[1], parts[2])
-        await message.answer("✅ Kanal nomi o'zgartirildi!")
+        await message.answer("✅ Kanal nomi yangilandi!")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("setdesc"))
-async def cmd_setdesc(message: Message):
+async def cmd_setdesc(message: Message) -> None:
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
     parts = message.text.split(maxsplit=2)
     if len(parts) < 3:
         await message.answer("❗ Foydalanish: /setdesc @kanal Tavsif")
@@ -383,8 +541,11 @@ async def cmd_setdesc(message: Message):
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
+
 @dp.message(Command("invite"))
-async def cmd_invite(message: Message):
+async def cmd_invite(message: Message) -> None:
+    if not message.from_user or message.from_user.id != OWNER_ID:
+        return
     parts = message.text.split()
     if len(parts) < 2:
         await message.answer("❗ Foydalanish: /invite @kanal")
@@ -397,30 +558,169 @@ async def cmd_invite(message: Message):
 
 
 # ══════════════════════════════════════
-# AI HANDLER
+# 🔊 AUDIO GENERATSIYA (/audio)
 # ══════════════════════════════════════
 
-@dp.message(F.text)
-async def ai_handler(message: Message):
-    user_id = message.from_user.id
-    if not message.text.strip():
+@dp.message(Command("audio"))
+async def cmd_audio(message: Message) -> None:
+    text_to_speak = (message.text or "").replace("/audio", "").strip()
+    if not text_to_speak:
+        await message.reply("❗ Matn kiriting. Misol: <code>/audio Salom</code>", parse_mode="HTML")
         return
-    await bot.send_chat_action(message.chat.id, "typing")
+
+    if len(text_to_speak) > 200:
+        await message.reply("❗ Matn 200 ta belgidan oshmasligi kerak.")
+        return
+
+    status_msg = await message.reply("🔊 Audio tayyorlanmoqda...")
+    await bot.send_chat_action(message.chat.id, "upload_voice")
+
     try:
-        response = await ask_gemini(user_id, message.text.strip())
-        for part in split_message(response):
-            await message.reply(part)
-    except asyncio.TimeoutError:
-        await message.reply("⏳ Vaqt tugadi.")
+        encoded_text = quote(text_to_speak)
+        audio_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=uz&client=tw-ob&q={encoded_text}"
+        audio_file = URLInputFile(audio_url, filename="audio.mp3")
+        await message.reply_audio(audio=audio_file, caption=f"🔊 Ovoz: {text_to_speak[:100]}")
+        await status_msg.delete()
     except Exception as e:
-        logger.exception(e)
-        await message.reply("❌ Xatolik yuz berdi.")
+        logger.error("Audio xatosi: %s", e)
+        await status_msg.edit_text("❌ Audio generatsiya qilib bo'lmadi.")
 
 
-async def main():
+# ══════════════════════════════════════
+# 🖼️ RASM GENERATSIYA (/imagine)
+# ══════════════════════════════════════
+
+@dp.message(Command("imagine"))
+async def cmd_imagine(message: Message) -> None:
+    prompt = (message.text or "").replace("/imagine", "").strip()
+    if not prompt:
+        await message.reply("❗ Rasm tavsifini kiriting. Misol: <code>/imagine neon cat</code>", parse_mode="HTML")
+        return
+
+    status_msg = await message.reply("🎨 Rasm chizilmoqda...")
+    await bot.send_chat_action(message.chat.id, "upload_photo")
+
+    try:
+        encoded_prompt = quote(prompt)
+        seed = random.randint(1, 99999)
+        image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?width=1024&height=1024&nologo=true&seed={seed}"
+        photo = URLInputFile(image_url, filename="image.jpg")
+        await message.reply_photo(photo=photo, caption=f"🖼 <b>Prompt:</b> {prompt[:200]}", parse_mode="HTML")
+        await status_msg.delete()
+    except Exception as e:
+        logger.error("Rasm xatosi: %s", e)
+        await status_msg.edit_text("❌ Rasm yaratishda xatolik yuz berdi.")
+
+
+# ══════════════════════════════════════
+# 🎬 VIDEO GENERATSIYA (/video)
+# ══════════════════════════════════════
+
+@dp.message(Command("video"))
+async def cmd_video(message: Message) -> None:
+    prompt = (message.text or "").replace("/video", "").strip()
+    if not prompt:
+        await message.reply("❗ Video tavsifini kiriting.", parse_mode="HTML")
+        return
+
+    status_msg = await message.reply("🎬 Video tayyorlanmoqda (15-30 soniya)...")
+    await bot.send_chat_action(message.chat.id, "upload_video")
+
+    try:
+        encoded_prompt = quote(prompt)
+        video_url = f"https://text-to-video.pollinations.ai/{encoded_prompt}"
+        video = URLInputFile(video_url, filename="video.mp4")
+        await message.reply_video(video=video, caption=f"🎬 <b>Prompt:</b> {prompt[:200]}", parse_mode="HTML")
+        await status_msg.delete()
+    except Exception as e:
+        logger.error("Video xatosi: %s", e)
+        await status_msg.edit_text("❌ Video yaratib bo'lmadi.")
+
+
+# ══════════════════════════════════════
+# 🤖 AI HANDLER (MULTIMODAL)
+# ══════════════════════════════════════
+
+@dp.message(F.content_type.in_({"text", "photo", "voice", "audio", "video", "document"}))
+async def multimodal_handler(message: Message) -> None:
+    if message.text and message.text.startswith("/"):
+        return
+
+    if not message.from_user:
+        return
+
+    if message.chat.type in ("group", "supergroup"):
+        bot_info = await bot.get_me()
+        is_mentioned = message.text and f"@{bot_info.username}" in message.text
+        is_reply_to_bot = message.reply_to_message and message.reply_to_message.from_user.id == bot_info.id
+        if not is_mentioned and not is_reply_to_bot:
+            return
+
+    user_id = message.from_user.id
+    await bot.send_chat_action(message.chat.id, "typing")
+
+    media_bytes: Optional[bytes] = None
+    mime_type: Optional[str] = None
+    user_text = message.text or message.caption
+
+    if user_text and message.chat.type in ("group", "supergroup"):
+        bot_info = await bot.get_me()
+        user_text = user_text.replace(f"@{bot_info.username}", "").strip()
+
+    try:
+        if message.photo:
+            file_id = message.photo[-1].file_id
+            mime_type = "image/jpeg"
+            file = await bot.get_file(file_id)
+            bio = await bot.download_file(file.file_path)
+            media_bytes = bio.read()
+
+        elif message.voice:
+            file_id = message.voice.file_id
+            mime_type = message.voice.mime_type or "audio/ogg"
+            file = await bot.get_file(file_id)
+            bio = await bot.download_file(file.file_path)
+            media_bytes = bio.read()
+
+        elif message.audio:
+            file_id = message.audio.file_id
+            mime_type = message.audio.mime_type or "audio/mpeg"
+            file = await bot.get_file(file_id)
+            bio = await bot.download_file(file.file_path)
+            media_bytes = bio.read()
+
+        elif message.video:
+            if message.video.file_size and message.video.file_size > 20 * 1024 * 1024:
+                await message.reply("❗ Video hajmi 20 MB dan oshmasligi kerak.")
+                return
+            file_id = message.video.file_id
+            mime_type = message.video.mime_type or "video/mp4"
+            file = await bot.get_file(file_id)
+            bio = await bot.download_file(file.file_path)
+            media_bytes = bio.read()
+
+        if not user_text and not media_bytes:
+            return
+
+        response = await ask_gemini(user_id, user_text, media_bytes, mime_type)
+        await send_long_message(message, response)
+
+    except asyncio.TimeoutError:
+        await message.reply("⏳ API so'rov vaqti tugadi.")
+    except Exception as e:
+        logger.exception("Xato yuz berdi: %s", e)
+        await message.reply("❌ Xatolik tufayli javob qaytarib bo'lmadi.")
+
+
+# ══════════════════════════════════════
+# ISHGA TUSHIRISH
+# ══════════════════════════════════════
+
+async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
-    logger.info("Bot ishga tushdi!")
-    await dp.start_polling(bot)
+    logger.info("🤖 AI & Admin bot muvaffaqiyatli ishga tushdi!")
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+
 
 if __name__ == "__main__":
     asyncio.run(main())
