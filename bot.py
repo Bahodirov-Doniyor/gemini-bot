@@ -217,11 +217,12 @@ async def cmd_start(message: Message) -> None:
     name = message.from_user.full_name if message.from_user else "Foydalanuvchi"
     await message.answer(
         f"Salom, <b>{name}</b>! 👋\n\n"
-        f"🤖 Men <b>Mukammal AI Botman</b> — ham aqlli Gemini AI, ham super guruh/kanal boshqaruvchisiman!\n\n"
+        f"🧠 <b>Men aqlli Gemini AI Botman!</b>\n"
+        f"Menga istalgan mavzuda xohlagan savolingizni matn ko'rinishida yozishingiz, yoki rasm, ovoz, video yuborib tahlil qildirishingiz mumkin. Men cheksiz savollarga javob bera olaman! 🚀\n\n"
         f"📖 <b>Botdan qanday foydalanamiz?</b>\n"
-        f"Botingiz nimalarga qodirligini ko'rish va buyruqlar qanday yozilishini real namunalar (misollar) bilan o'rganish uchun hoziroq <b>/help</b> buyrug'ini yuboring!\n\n"
+        f"Bot yana qanday qo'shimcha guruh va kanal boshqarish buyruqlariga ega ekanini ko'rish hamda ularning yozilishini real namunalar (misollar) bilan o'rganish uchun <b>/help</b> buyrug'ini yuboring.\n\n"
         f"🎛️ <b>Tezkor boshqaruv paneli:</b>\n"
-        f"Buyruqlarni qo'lda yozib o'tirmaslik, <code>@</code> va bo'sh joy belgilarini panelga avtomatik chiqarish uchun <b>/menu</b> buyrug'idan foydalaning.",
+        f"Ma'murchilik va media buyruqlarini qo'lda yozib o'tirmaslik, <code>@</code> va bo'sh joy belgilarini panelga avtomatik chiqarish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning.",
         parse_mode="HTML",
     )
 
@@ -266,7 +267,7 @@ async def cmd_help(message: Message) -> None:
         "• <b>Xabarni o'chirish:</b> Nojo'ya xabarga reply qilib <code>/deltmsg</code> deb yozsangiz, xabar o'chadi.\n"
         "• <b>Xotirani tozalash:</b> AI bilan suhbatni yangidan boshlash uchun shunchaki <code>/new</code> deb yozing.\n\n"
         
-        "⚡ <b>Maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik, <b>@</b> va bo'sh job belgilarini avtomatik panelga joylashtirish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning!",
+        "⚡ <b>Maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik, <b>@</b> va bo'sh joy belgilarini avtomatik panelga joylashtirish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning!",
         parse_mode="HTML",
     )
 
