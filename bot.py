@@ -13,7 +13,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ChatPermissions, Message, URLInputFile, ReplyKeyboardMarkup, KeyboardButton, BotCommand
+from aiogram.types import ChatPermissions, Message, URLInputFile, BotCommand, ReplyKeyboardRemove
 from dotenv import load_dotenv
 
 # ══════════════════════════════════════
@@ -215,23 +215,27 @@ def run_health_server() -> None:
 @dp.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     name = message.from_user.full_name if message.from_user else "Foydalanuvchi"
+    # Eski reply klaviaturani butunlay tozalab tashlaymiz (Xatolik bermasligi uchun)
     await message.answer(
         f"Salom, <b>{name}</b>! 👋\n\n"
         f"🧠 <b>Men aqlli Gemini AI Botman!</b>\n"
         f"Menga istalgan mavzuda xohlagan savolingizni matn ko'rinishida yozishingiz, yoki rasm, ovoz, video yuborib tahlil qildirishingiz mumkin. Men cheksiz savollarga javob bera olaman! 🚀\n\n"
         f"📖 <b>Botdan qanday foydalanamiz?</b>\n"
-        f"Bot yana qanday qo'shimcha guruh va kanal boshqarish buyruqlariga ega ekanini ko'rish hamda ularning yozilishini real namunalar (misollar) bilan o'rganish uchun <b>/help</b> buyrug'ini yuboring.\n\n"
-        f"🎛️ <b>Tezkor boshqaruv paneli:</b>\n"
-        f"Ma'murchilik va media buyruqlarini qo'lda yozib o'tirmaslik, <code>@</code> va bo'sh joy belgilarini panelga avtomatik chiqarish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning.",
+        f"Bot qanday guruh va kanal boshqarish buyruqlariga ega ekanini ko'rish hamda ularning yozilishini real namunalar (misollar) bilan o'rganish uchun hoziroq <b>/help</b> buyrug'ini yuboring.\n\n"
+        f"🎛️ <b>Tezkor buyruqlar paneli (Slash Menyusi):</b>\n"
+        f"Buyruqlarni qo'lda yozib o'tirmaslik uchun yozish panelining o'ng tarafidagi <b>[/]</b> tugmasini bosing. O'sha yerdan buyruqni tanlasangiz, Telegram srazi yubormaydi, yoniga matn yoki @ belgisini yozishingizni kutib turadi!",
         parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove()
     )
 
 
-@dp.message(Command("help"))
+@dp.message(Command("help", "menu", "panel"))
 async def cmd_help(message: Message) -> None:
     await message.answer(
         "📖 <b>Bot buyruqlaridan toʻgʻri foydalanish boʻyicha qoʻllanma:</b>\n\n"
         
+        "💡 <b>Tezkor maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik va srazi ketib qolishini oldini olish uchun yozish panelingiz o'ng tarafidagi <b>[/]</b> tugmasini bosing. Telegram o'zi buyruqni panelga yozib, davomini yozishingizni kutadi!\n\n"
+
         "🧠 <b>1. AI va Neyrotarmoq buyruqlari:</b>\n"
         "• <b>Oddiy muloqot:</b> Shunchaki botning o'ziga matn yozing yoki rasm/ovoz yuboring.\n"
         "• <b>Rasm chizish:</b> <code>/imagine [tavsif]</code> formatida yoziladi.\n"
@@ -242,13 +246,11 @@ async def cmd_help(message: Message) -> None:
         "  └ <i>Namuna:</i> <code>/audio Salom dasturlashni o'rganish juda qiziqarli</code>\n\n"
         
         "👥 <b>2. Guruh ma'murlari (Admin) buyruqlari:</b>\n"
-        "• <b>Ban (Bloklash):</b> <code>/ban @username</code> yoki yuzerning xabariga reply qilib <code>/ban</code> deb yozing.\n"
-        "  └ <i>Namuna:</i> <code>/ban @username</code>\n"
+        "• <b>Ban (Bloklash):</b> <code>/ban @username</code> yoki xabarga reply qilib <code>/ban</code> deb yozing.\n"
         "• <b>Unban (Blokdan olish):</b> <code>/unban @username</code> ko'rinishida yoziladi.\n"
-        "  └ <i>Namuna:</i> <code>/unban @username</code>\n"
-        "• <b>Mute (Sukut):</b> Ovozini o'chirmoqchi bo'lgan odamning xabariga reply qilib <code>/mute</code> deb yozing.\n"
-        "• <b>Unmute (Ovozni tiklash):</b> O'sha odamning xabariga reply qilib <code>/unmute</code> deb yozing.\n"
-        "• <b>Kick (Guruhdan chiqarish):</b> Xabarga reply qilib <code>/kick</code> deb yozsangiz, foydalanuvchi haydaladi.\n"
+        "• <b>Mute (Sukut):</b> Xabarga reply qilib <code>/mute</code> deb yozing.\n"
+        "• <b>Unmute (Ovozni tiklash):</b> Xabarga reply qilib <code>/unmute</code> deb yozing.\n"
+        "• <b>Kick (Guruhdan chiqarish):</b> Xabarga reply qilib <code>/kick</code> deb yozing.\n"
         "• <b>Admin tayinlash:</b> Xabarga reply qilib <code>/addadmin</code> deb yozing.\n"
         "• <b>Adminlikdan olish:</b> Xabarga reply qilib <code>/removeadmin</code> deb yozing.\n\n"
         
@@ -256,87 +258,15 @@ async def cmd_help(message: Message) -> None:
         "• <b>Post yuborish:</b> <code>/post @kanal [matn]</code> ko'rinishida yoziladi.\n"
         "  └ <i>Namuna:</i> <code>/post @kanal Bugun loyihada ajoyib yangilik bor!</code>\n"
         "• <b>Kanal nomini yangilash:</b> <code>/settitle @kanal [yangi nom]</code>\n"
-        "  └ <i>Namuna:</i> <code>/settitle @kanal Kibertaxdid darslari</code>\n"
         "• <b>Kanal tavsifini yangilash:</b> <code>/setdesc @kanal [tavsif]</code>\n"
-        "  └ <i>Namuna:</i> <code>/setdesc @kanal Bu yerda IT sirlari ulashiladi</code>\n"
-        "• <b>Taklif havolasi (Invite Link):</b> <code>/invite @kanal</code>\n"
-        "  └ <i>Namuna:</i> <code>/invite @kanal</code>\n\n"
+        "• <b>Taklif havolasi (Invite Link):</b> <code>/invite @kanal</code>\n\n"
         
         "📌 <b>4. Xabarlar bilan ishlash va Tizim:</b>\n"
         "• <b>Pin qilish:</b> Kerakli xabarga reply qilib <code>/pin</code> deb yozing.\n"
         "• <b>Xabarni o'chirish:</b> Nojo'ya xabarga reply qilib <code>/deltmsg</code> deb yozsangiz, xabar o'chadi.\n"
-        "• <b>Xotirani tozalash:</b> AI bilan suhbatni yangidan boshlash uchun shunchaki <code>/new</code> deb yozing.\n\n"
-        
-        "⚡ <b>Maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik, <b>@</b> va bo'sh joy belgilarini avtomatik panelga joylashtirish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning!",
+        "• <b>Xotirani tozalash:</b> AI suhbatini yangidan boshlash uchun shunchaki <code>/new</code> deb yozing.",
         parse_mode="HTML",
-    )
-
-
-@dp.message(Command("menu", "panel"))
-async def cmd_menu(message: Message) -> None:
-    """Bosganda yozish paneliga toza slash va argumentlarni avtomatik yozib beruvchi panel."""
-    smart_reply_menu = ReplyKeyboardMarkup(
-        keyboard=[
-            # 🎨 AI VA MEDIA BUYRUQLARI
-            [
-                KeyboardButton(text="/imagine "),
-                KeyboardButton(text="/video ")
-            ],
-            [
-                KeyboardButton(text="/audio ")
-            ],
-            
-            # 👥 GURUH BOSHQARUVI
-            [
-                KeyboardButton(text="/ban @"),
-                KeyboardButton(text="/unban @")
-            ],
-            [
-                KeyboardButton(text="/mute"),
-                KeyboardButton(text="/unmute")
-            ],
-            [
-                KeyboardButton(text="/kick"),
-                KeyboardButton(text="/addadmin @")
-            ],
-            [
-                KeyboardButton(text="/removeadmin")
-            ],
-            
-            # 📢 KANAL BOSHQARUVI
-            [
-                KeyboardButton(text="/post @"),
-                KeyboardButton(text="/invite @")
-            ],
-            [
-                KeyboardButton(text="/settitle @"),
-                KeyboardButton(text="/setdesc @")
-            ],
-            
-            # 📌 XABARLAR VA TIZIM
-            [
-                KeyboardButton(text="/pin"),
-                KeyboardButton(text="/deltmsg")
-            ],
-            [
-                KeyboardButton(text="/new"),
-                KeyboardButton(text="/model")
-            ],
-            [
-                KeyboardButton(text="/myid"),
-                KeyboardButton(text="/info")
-            ]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=False,
-        input_field_placeholder="Buyruqni tanlang va kerakli matnni kiriting..."
-    )
-
-    await message.answer(
-        "🎛️ <b>Tezkor universal boshqaruv paneli ishga tushdi:</b>\n\n"
-        "Pastdagi tugmalardan birini bossangiz, u yozish paneliga toza slash va argumentlarni (<code>@</code> yoki bo'sh joy) avtomatik yozib beradi. Siz faqat kerakli so'zni yozib yuborasiz, tamom!",
-        parse_mode="HTML",
-        reply_markup=smart_reply_menu
+        reply_markup=ReplyKeyboardRemove()
     )
 
 
@@ -799,16 +729,28 @@ async def multimodal_handler(message: Message) -> None:
 async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
     
-    # Menu buyruqlarini Telegram yozish paneli interfeysiga avtomatik yuklash
+    # Barcha buyruqlarni to'liq Telegram toza [/] menyusiga yuklaymiz. 
+    # Bu yerda foydalanuvchi tugmani bossa, Telegram srazi yubormaydi, argument yozishni kutib turadi!
     main_commands = [
         BotCommand(command="start", description="Botni ishga tushirish"),
         BotCommand(command="help", description="📖 Namunalar bilan batafsil qo'llanma"),
-        BotCommand(command="menu", description="🎛️ Tezkor tugmalar panelini ochish"),
-        BotCommand(command="panel", description="🎛️ Tezkor boshqaruv paneli (muqobil)"),
+        BotCommand(command="new", description="🔄 AI suhbat xotirasini tozalash"),
+        BotCommand(command="imagine", description="🎨 [tavsif] — AI orqali rasm chizish"),
+        BotCommand(command="video", description="🎬 [tavsif] — Qisqa video yaratish"),
+        BotCommand(command="audio", description="🔊 [matn] — Matnni ovozga aylantirish"),
+        BotCommand(command="ban", description="🚫 [@username] — Guruhdan bloklash"),
+        BotCommand(command="unban", description="✅ [@username] — Blokdan chiqarish"),
+        BotCommand(command="post", description="📢 [@kanal] [matn] — Kanalga post yuborish"),
+        BotCommand(command="invite", description="🔗 [@kanal] — Taklif havolasini olish"),
+        BotCommand(command="settitle", description="📝 [@kanal] [nom] — Kanal nomini o'zgartirish"),
+        BotCommand(command="setdesc", description="ℹ️ [@kanal] [tavsif] — Kanal tavsifini yangilash"),
+        BotCommand(command="myid", description="🆔 Shaxsiy Telegram IDingizni ko'rish"),
+        BotCommand(command="info", description="📊 Chat haqida ma'lumot olish"),
+        BotCommand(command="model", description="⚙️ Joriy ishchi AI modelni ko'rish"),
     ]
     try:
         await bot.set_my_commands(main_commands)
-        logger.info("Yozish paneli menyusi muvaffaqiyatli o'rnatildi.")
+        logger.info("Yozish paneli standart menyusi muvaffaqiyatli o'rnatildi.")
     except Exception as cmd_err:
         logger.error(f"Menyuni yuklashda xato: {cmd_err}")
 
