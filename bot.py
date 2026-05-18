@@ -13,7 +13,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ChatPermissions, Message, URLInputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from aiogram.types import ChatPermissions, Message, URLInputFile, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from dotenv import load_dotenv
 
 # ══════════════════════════════════════
@@ -274,64 +274,69 @@ async def cmd_help(message: Message) -> None:
 
 @dp.message(Command("menu", "panel"))
 async def cmd_menu(message: Message) -> None:
-    """Tugmalarni bossa panelga tayyor argument va belgilarni tashlab beruvchi universal panel."""
-    smart_menu = InlineKeyboardMarkup(inline_keyboard=[
-        # 🎨 AI VA MEDIA BUYRUQLARI (Bo'sh joy bilan ochiladi)
-        [
-            InlineKeyboardButton(text="🖼️ AI Rasm (Imagine)", switch_inline_query_current_chat="imagine "),
-            InlineKeyboardButton(text="🎬 AI Video", switch_inline_query_current_chat="video ")
+    """Bosganda yozish paneliga toza slash va argumentlarni avtomatik yozib beruvchi panel."""
+    smart_reply_menu = ReplyKeyboardMarkup(
+        keyboard=[
+            # 🎨 AI VA MEDIA BUYRUQLARI
+            [
+                KeyboardButton(text="/imagine "),
+                KeyboardButton(text="/video ")
+            ],
+            [
+                KeyboardButton(text="/audio ")
+            ],
+            
+            # 👥 GURUH BOSHQARUVI
+            [
+                KeyboardButton(text="/ban @"),
+                KeyboardButton(text="/unban @")
+            ],
+            [
+                KeyboardButton(text="/mute"),
+                KeyboardButton(text="/unmute")
+            ],
+            [
+                KeyboardButton(text="/kick"),
+                KeyboardButton(text="/addadmin @")
+            ],
+            [
+                KeyboardButton(text="/removeadmin")
+            ],
+            
+            # 📢 KANAL BOSHQARUVI
+            [
+                KeyboardButton(text="/post @"),
+                KeyboardButton(text="/invite @")
+            ],
+            [
+                KeyboardButton(text="/settitle @"),
+                KeyboardButton(text="/setdesc @")
+            ],
+            
+            # 📌 XABARLAR VA TIZIM
+            [
+                KeyboardButton(text="/pin"),
+                KeyboardButton(text="/deltmsg")
+            ],
+            [
+                KeyboardButton(text="/new"),
+                KeyboardButton(text="/model")
+            ],
+            [
+                KeyboardButton(text="/myid"),
+                KeyboardButton(text="/info")
+            ]
         ],
-        [
-            InlineKeyboardButton(text="🔊 Matnni Audioga o'girish", switch_inline_query_current_chat="audio ")
-        ],
-        
-        # 👥 GURUH BOSHQARUVI (@ belgisi yoki probel bilan ochiladi)
-        [
-            InlineKeyboardButton(text="🚫 Ban qilish", switch_inline_query_current_chat="ban @"),
-            InlineKeyboardButton(text="✅ Blokdan olish", switch_inline_query_current_chat="unban @")
-        ],
-        [
-            InlineKeyboardButton(text="🔇 Mute (Sukut)", switch_inline_query_current_chat="mute "),
-            InlineKeyboardButton(text="🔊 Unmute", switch_inline_query_current_chat="unmute ")
-        ],
-        [
-            InlineKeyboardButton(text="👢 Kick (Haydash)", switch_inline_query_current_chat="kick "),
-            InlineKeyboardButton(text="⭐ Admin qilish", switch_inline_query_current_chat="addadmin @")
-        ],
-        [
-            InlineKeyboardButton(text="❌ Adminlikdan olish", switch_inline_query_current_chat="removeadmin ")
-        ],
-        
-        # 📢 KANAL BOSHQARUVI (@ belgisi bilan ochiladi)
-        [
-            InlineKeyboardButton(text="📢 Kanalga Post", switch_inline_query_current_chat="post @"),
-            InlineKeyboardButton(text="🔗 Taklif havolasi", switch_inline_query_current_chat="invite @")
-        ],
-        [
-            InlineKeyboardButton(text="📝 Kanal nomi", switch_inline_query_current_chat="settitle @"),
-            InlineKeyboardButton(text="ℹ️ Kanal tavsifi", switch_inline_query_current_chat="setdesc @")
-        ],
-        
-        # 📌 XABARLAR VA TIZIM (To'g'ridan-to'g'ri yuboriladi)
-        [
-            InlineKeyboardButton(text="📌 Xabarni Pin qilish", switch_inline_query_current_chat="pin"),
-            InlineKeyboardButton(text="🗑️ Xabarni o'chirish", switch_inline_query_current_chat="deltmsg")
-        ],
-        [
-            InlineKeyboardButton(text="🔄 Yangi Suhbat (New)", switch_inline_query_current_chat="new"),
-            InlineKeyboardButton(text="⚙️ AI Model", switch_inline_query_current_chat="model")
-        ],
-        [
-            InlineKeyboardButton(text="🆔 Mening ID'm", switch_inline_query_current_chat="myid"),
-            InlineKeyboardButton(text="📊 Chat Info", switch_inline_query_current_chat="info")
-        ]
-    ])
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        input_field_placeholder="Buyruqni tanlang va kerakli matnni kiriting..."
+    )
 
     await message.answer(
-        "🎛️ <b>Tezkor universal boshqaruv paneli:</b>\n\n"
-        "Tugmalardan birini bossangiz, yozish paneliga kerakli buyruq va tegishli argument (<code>@</code> yoki bo'sh joy) avtomatik joylashadi. Siz faqat kerakli so'zni yozib yuborasiz.",
+        "🎛️ <b>Tezkor universal boshqaruv paneli ishga tushdi:</b>\n\n"
+        "Pastdagi tugmalardan birini bossangiz, u yozish paneliga toza slash va argumentlarni (<code>@</code> yoki bo'sh joy) avtomatik yozib beradi. Siz faqat kerakli so'zni yozib yuborasiz, tamom!",
         parse_mode="HTML",
-        reply_markup=smart_menu
+        reply_markup=smart_reply_menu
     )
 
 
