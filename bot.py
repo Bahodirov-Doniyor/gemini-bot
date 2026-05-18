@@ -6,8 +6,10 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 import aiohttp
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart, Command
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Message
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -30,9 +32,8 @@ GEMINI_URL = (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=TELEGRAM_TOKEN, parse_mode=types.ParseMode.HTML)
-dp = Dispatcher(bot, storage=MemoryStorage())
-
+bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
 conversation_history = {}
 
 
@@ -48,7 +49,6 @@ def run_health_server():
     port = int(os.getenv("PORT", "8080"))
     server = HTTPServer(("0.0.0.0", port), HealthHandler)
     server.serve_forever()
-
 
 def get_history(user_id):
     return conversation_history.get(user_id, [])
@@ -101,34 +101,30 @@ async def ask_gemini(user_id, user_text):
     return ai_text
 
 
-@dp.message_handler(commands=["start"])
-async def cmd_start(message: types.Message):
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
     await message.answer(
         f"Salom, <b>{message.from_user.full_name}</b>!\n\n"
         "Men Gemini AI botman. Istalgan savol bering!\n\n"
-        "/new — Yangi suhbat\n/help — Yordam"
+        "/new — Yangi suhbat\n/help — Yordam",
+        parse_mode="HTML"
     )
 
-@dp.message_handler(commands=["help"])
-async def cmd_help(message: types.Message):
-    await message.answer(
-        "Yordam:\n\n"
-        "Istalgan savol yuboring\n"
-        "/new — tarixni tozalash\n"
-        "/model — joriy model"
-    )
+@dp.message(Command("help"))
+async def cmd_help(message: Message):
+    await message.answer("Istalgan savol yuboring!\n/new — tarixni tozalash")
 
-@dp.message_handler(commands=["new"])
-async def cmd_new(message: types.Message):
+@dp.message(Command("new"))
+async def cmd_new(message: Message):
     clear_history(message.from_user.id)
     await message.answer("Yangi suhbat boshlandi!")
 
-@dp.message_handler(commands=["model"])
-async def cmd_model(message: types.Message):
+@dp.message(Command("model"))
+async def cmd_model(message: Message):
     await message.answer(f"Model: {GEMINI_MODEL}")
 
-@dp.message_handler()
-async def ai_handler(message: types.Message):
+@dp.message(F.text)
+async def ai_handler(message: Message):
     user_id = message.from_user.id
     if not message.text.strip():
         return
@@ -138,7 +134,7 @@ async def ai_handler(message: types.Message):
         for part in split_message(response):
             await message.reply(part)
     except asyncio.TimeoutError:
-        await message.reply("Vaqt tugadi. Qaytadan urinib koring.")
+        await message.reply("Vaqt tugadi.")
     except Exception as e:
         logger.exception(e)
         await message.reply("Xatolik yuz berdi.")
@@ -147,7 +143,7 @@ async def ai_handler(message: types.Message):
 async def main():
     threading.Thread(target=run_health_server, daemon=True).start()
     logger.info("Bot ishga tushdi!")
-    await dp.start_polling()
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
