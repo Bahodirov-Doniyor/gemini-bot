@@ -13,7 +13,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ChatPermissions, Message, URLInputFile
+from aiogram.types import ChatPermissions, Message, URLInputFile, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from dotenv import load_dotenv
 
 # ══════════════════════════════════════
@@ -222,7 +222,8 @@ async def cmd_start(message: Message) -> None:
         "🖼 <code>/imagine [tavsif]</code> — Rasm yaratish\n"
         "🎬 <code>/video [tavsif]</code> — Video yaratish\n"
         "🔊 <code>/audio [matn]</code> — Ovoz yaratish\n\n"
-        "📌 Guruh va kanallarda foydalanish buyruqlarini ko'rish uchun <code>/help</code> bosing.",
+        "📌 Guruh va kanallarda foydalanish namunalarini ko'rish uchun <code>/help</code> bosing.\n"
+        "🎛️ Tezkor tugmalar panelini ochish uchun <code>/menu</code> buyrug'ini yuboring.",
         parse_mode="HTML",
     )
 
@@ -230,33 +231,108 @@ async def cmd_start(message: Message) -> None:
 @dp.message(Command("help"))
 async def cmd_help(message: Message) -> None:
     await message.answer(
-        "📋 <b>Barcha buyruqlar ro'yxati:</b>\n\n"
-        "🤖 <b>AI va Media:</b>\n"
-        "🖼 <code>/imagine matn</code> — AI rasm yaratish\n"
-        "🎬 <code>/video matn</code> — Video animatsiya yaratish\n"
-        "🔊 <code>/audio matn</code> — Matnni audio o'girish\n"
-        "🔄 <code>/new</code> — Suhbat xotirasini tozalash\n"
-        "⚙️ <code>/model</code> — Joriy ishchi model\n\n"
-        "👥 <b>Guruh boshqaruvi (Faqat Adminlar):</b>\n"
-        "🚫 <code>/ban @username</code> — Bloklash (yoki reply)\n"
-        "✅ <code>/unban @username</code> — Blokdan chiqarish\n"
-        "🔇 <code>/mute</code> — Ovozni o'chirish (reply)\n"
-        "🔊 <code>/unmute</code> — Ovozni tiklash (reply)\n"
-        "👢 <code>/kick</code> — Guruhdan haydash (reply)\n"
-        "⭐ <code>/addadmin</code> — Adminlik berish (reply)\n"
-        "❌ <code>/removeadmin</code> — Adminlikdan olish (reply)\n"
-        "📌 <code>/pin</code> — Xabarni mustahkamlash (reply)\n"
-        "🔓 <code>/unpin</code> — Xabarni mustahkamlashdan olish\n"
-        "🗑️ <code>/deltmsg</code> — Xabarni o'chirish (reply)\n\n"
-        "📢 <b>Kanal boshqaruvi:</b>\n"
-        "📝 <code>/post @kanal matn</code> — Kanalga post yuborish\n"
-        "🏷️ <code>/settitle @kanal nom</code> — Kanal nomini o'zgartirish\n"
-        "ℹ️ <code>/setdesc @kanal tavsif</code> — Kanal tavsifini o'zgartirish\n"
-        "🔗 <code>/invite @kanal</code> — Maxsus taklif havolasi\n\n"
-        "📊 <b>Ma'lumotlar:</b>\n"
-        "🆔 <code>/myid</code> — Shaxsiy Telegram ID\n"
-        "📊 <code>/info</code> — Chat haqida ma'lumot",
+        "📖 <b>Bot buyruqlaridan toʻgʻri foydalanish boʻyicha qoʻllanma:</b>\n\n"
+        
+        "🧠 <b>1. AI va Neyrotarmoq buyruqlari:</b>\n"
+        "• <b>Oddiy muloqot:</b> Shunchaki botning o'ziga matn yozing yoki rasm/ovoz yuboring.\n"
+        "• <b>Rasm chizish:</b> <code>/imagine [tavsif]</code> formatida yoziladi.\n"
+        "  └ <i>Namuna:</i> <code>/imagine xaker bolakay kosmosda, neon uslubida</code>\n"
+        "• <b>Video yaratish:</b> <code>/video [tavsif]</code> formatida yoziladi.\n"
+        "  └ <i>Namuna:</i> <code>/video flying eagle over mountains</code>\n"
+        "• <b>Matnni ovozga o'girish:</b> <code>/audio [matn]</code> formatida yoziladi.\n"
+        "  └ <i>Namuna:</i> <code>/audio Salom dasturlashni o'rganish juda qiziqarli</code>\n\n"
+        
+        "👥 <b>2. Guruh ma'murlari (Admin) buyruqlari:</b>\n"
+        "• <b>Ban (Bloklash):</b> <code>/ban @username</code> yoki yuzerning xabariga reply qilib <code>/ban</code> deb yozing.\n"
+        "  └ <i>Namuna:</i> <code>/ban @username</code>\n"
+        "• <b>Unban (Blokdan olish):</b> <code>/unban @username</code> ko'rinishida yoziladi.\n"
+        "  └ <i>Namuna:</i> <code>/unban @username</code>\n"
+        "• <b>Mute (Sukut):</b> Ovozini o'chirmoqchi bo'lgan odamning xabariga reply qilib <code>/mute</code> deb yozing.\n"
+        "• <b>Unmute (Ovozni tiklash):</b> O'sha odamning xabariga reply qilib <code>/unmute</code> deb yozing.\n"
+        "• <b>Kick (Guruhdan chiqarish):</b> Xabarga reply qilib <code>/kick</code> deb yozsangiz, foydalanuvchi haydaladi.\n"
+        "• <b>Admin tayinlash:</b> Xabarga reply qilib <code>/addadmin</code> deb yozing.\n"
+        "• <b>Adminlikdan olish:</b> Xabarga reply qilib <code>/removeadmin</code> deb yozing.\n\n"
+        
+        "📢 <b>3. Kanal boshqaruvi (Faqat Bot Egasi uchun):</b>\n"
+        "• <b>Post yuborish:</b> <code>/post @kanal [matn]</code> ko'rinishida yoziladi.\n"
+        "  └ <i>Namuna:</i> <code>/post @kanal Bugun loyihada ajoyib yangilik bor!</code>\n"
+        "• <b>Kanal nomini yangilash:</b> <code>/settitle @kanal [yangi nom]</code>\n"
+        "  └ <i>Namuna:</i> <code>/settitle @kanal Kibertaxdid darslari</code>\n"
+        "• <b>Kanal tavsifini yangilash:</b> <code>/setdesc @kanal [tavsif]</code>\n"
+        "  └ <i>Namuna:</i> <code>/setdesc @kanal Bu yerda IT sirlari ulashiladi</code>\n"
+        "• <b>Taklif havolasi (Invite Link):</b> <code>/invite @kanal</code>\n"
+        "  └ <i>Namuna:</i> <code>/invite @kanal</code>\n\n"
+        
+        "📌 <b>4. Xabarlar bilan ishlash va Tizim:</b>\n"
+        "• <b>Pin qilish:</b> Kerakli xabarga reply qilib <code>/pin</code> deb yozing.\n"
+        "• <b>Xabarni o'chirish:</b> Nojo'ya xabarga reply qilib <code>/deltmsg</code> deb yozsangiz, xabar o'chadi.\n"
+        "• <b>Xotirani tozalash:</b> AI bilan suhbatni yangidan boshlash uchun shunchaki <code>/new</code> deb yozing.\n\n"
+        
+        "⚡ <b>Maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik, <b>@</b> va bo'sh joy belgilarini avtomatik panelga joylashtirish uchun istalgan vaqtda <b>/menu</b> buyrug'idan foydalaning!",
         parse_mode="HTML",
+    )
+
+
+@dp.message(Command("menu", "panel"))
+async def cmd_menu(message: Message) -> None:
+    """Tugmalarni bossa panelga tayyor argument va belgilarni tashlab beruvchi universal panel."""
+    smart_menu = InlineKeyboardMarkup(inline_keyboard=[
+        # 🎨 AI VA MEDIA BUYRUQLARI (Bo'sh joy bilan ochiladi)
+        [
+            InlineKeyboardButton(text="🖼️ AI Rasm (Imagine)", switch_inline_query_current_chat="imagine "),
+            InlineKeyboardButton(text="🎬 AI Video", switch_inline_query_current_chat="video ")
+        ],
+        [
+            InlineKeyboardButton(text="🔊 Matnni Audioga o'girish", switch_inline_query_current_chat="audio ")
+        ],
+        
+        # 👥 GURUH BOSHQARUVI (@ belgisi yoki probel bilan ochiladi)
+        [
+            InlineKeyboardButton(text="🚫 Ban qilish", switch_inline_query_current_chat="ban @"),
+            InlineKeyboardButton(text="✅ Blokdan olish", switch_inline_query_current_chat="unban @")
+        ],
+        [
+            InlineKeyboardButton(text="🔇 Mute (Sukut)", switch_inline_query_current_chat="mute "),
+            InlineKeyboardButton(text="🔊 Unmute", switch_inline_query_current_chat="unmute ")
+        ],
+        [
+            InlineKeyboardButton(text="👢 Kick (Haydash)", switch_inline_query_current_chat="kick "),
+            InlineKeyboardButton(text="⭐ Admin qilish", switch_inline_query_current_chat="addadmin @")
+        ],
+        [
+            InlineKeyboardButton(text="❌ Adminlikdan olish", switch_inline_query_current_chat="removeadmin ")
+        ],
+        
+        # 📢 KANAL BOSHQARUVI (@ belgisi bilan ochiladi)
+        [
+            InlineKeyboardButton(text="📢 Kanalga Post", switch_inline_query_current_chat="post @"),
+            InlineKeyboardButton(text="🔗 Taklif havolasi", switch_inline_query_current_chat="invite @")
+        ],
+        [
+            InlineKeyboardButton(text="📝 Kanal nomi", switch_inline_query_current_chat="settitle @"),
+            InlineKeyboardButton(text="ℹ️ Kanal tavsifi", switch_inline_query_current_chat="setdesc @")
+        ],
+        
+        # 📌 XABARLAR VA TIZIM (To'g'ridan-to'g'ri yuboriladi)
+        [
+            InlineKeyboardButton(text="📌 Xabarni Pin qilish", switch_inline_query_current_chat="pin"),
+            InlineKeyboardButton(text="🗑️ Xabarni o'chirish", switch_inline_query_current_chat="deltmsg")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Yangi Suhbat (New)", switch_inline_query_current_chat="new"),
+            InlineKeyboardButton(text="⚙️ AI Model", switch_inline_query_current_chat="model")
+        ],
+        [
+            InlineKeyboardButton(text="🆔 Mening ID'm", switch_inline_query_current_chat="myid"),
+            InlineKeyboardButton(text="📊 Chat Info", switch_inline_query_current_chat="info")
+        ]
+    ])
+
+    await message.answer(
+        "🎛️ <b>Tezkor universal boshqaruv paneli:</b>\n\n"
+        "Tugmalardan birini bossangiz, yozish paneliga kerakli buyruq va tegishli argument (<code>@</code> yoki bo'sh joy) avtomatik joylashadi. Siz faqat kerakli so'zni yozib yuborasiz.",
+        parse_mode="HTML",
+        reply_markup=smart_menu
     )
 
 
@@ -718,6 +794,20 @@ async def multimodal_handler(message: Message) -> None:
 
 async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
+    
+    # Menu buyruqlarini Telegram yozish paneli interfeysiga avtomatik yuklash
+    main_commands = [
+        BotCommand(command="start", description="Botni ishga tushirish"),
+        BotCommand(command="help", description="📖 Namunalar bilan batafsil qo'llanma"),
+        BotCommand(command="menu", description="🎛️ Tezkor tugmalar panelini ochish"),
+        BotCommand(command="panel", description="🎛️ Tezkor boshqaruv paneli (muqobil)"),
+    ]
+    try:
+        await bot.set_my_commands(main_commands)
+        logger.info("Yozish paneli menyusi muvaffaqiyatli o'rnatildi.")
+    except Exception as cmd_err:
+        logger.error(f"Menyuni yuklashda xato: {cmd_err}")
+
     logger.info("🤖 AI & Admin bot muvaffaqiyatli ishga tushdi!")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
