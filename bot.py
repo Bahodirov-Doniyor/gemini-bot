@@ -13,7 +13,16 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import ChatPermissions, Message, URLInputFile, BotCommand, ReplyKeyboardRemove
+from aiogram.types import (
+    ChatPermissions, 
+    Message, 
+    URLInputFile, 
+    BotCommand, 
+    ReplyKeyboardRemove, 
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton,
+    SwitchInlineQueryChosenChat
+)
 from dotenv import load_dotenv
 
 # ══════════════════════════════════════
@@ -87,7 +96,6 @@ def clear_history(user_id: int) -> None:
 # ══════════════════════════════════════
 
 def split_message(text: str, limit: int = TELEGRAM_MAX_LENGTH) -> list[str]:
-    """Uzun xabarlarni Telegram limitiga bo'lib qaytaradi."""
     if len(text) <= limit:
         return [text]
     parts = []
@@ -106,7 +114,6 @@ def split_message(text: str, limit: int = TELEGRAM_MAX_LENGTH) -> list[str]:
 
 
 async def send_long_message(message: Message, text: str) -> None:
-    """Uzun matnni xavfsiz render bilan bo'lib yuboradi."""
     for part in split_message(text):
         if part.strip():
             try:
@@ -116,7 +123,6 @@ async def send_long_message(message: Message, text: str) -> None:
 
 
 async def is_user_admin(chat_id: int, user_id: int) -> bool:
-    """Foydalanuvchi guruhda admin yoki bot egasi ekanligini tekshiradi."""
     if user_id == OWNER_ID:
         return True
     try:
@@ -136,7 +142,6 @@ async def ask_gemini(
     media_bytes: Optional[bytes] = None,
     mime_type: Optional[str] = None,
 ) -> str:
-    """Gemini API so'rovi va xotira tizimini xavfsiz boshqarish."""
     current_parts: list[dict] = []
 
     if media_bytes and mime_type:
@@ -181,7 +186,6 @@ async def ask_gemini(
         logger.error("Kutilmagan API javobi: %s", data)
         raise RuntimeError("API dan kutilmagan javob formati.") from exc
 
-    # Xotira faqat javob muvaffaqiyatli bo'lsa yangilanadi
     add_to_history(user_id, "user", [{"text": user_text or "[Media fayl]"}])
     add_to_history(user_id, "model", [{"text": ai_text}])
     return ai_text
@@ -192,13 +196,13 @@ async def ask_gemini(
 # ══════════════════════════════════════
 
 class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(b"OK")
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A002
+    def log_message(self, format: str, *args) -> None:
         pass
 
 
@@ -215,58 +219,88 @@ def run_health_server() -> None:
 @dp.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     name = message.from_user.full_name if message.from_user else "Foydalanuvchi"
-    # Eski reply klaviaturani butunlay tozalab tashlaymiz (Xatolik bermasligi uchun)
     await message.answer(
         f"Salom, <b>{name}</b>! 👋\n\n"
         f"🧠 <b>Men aqlli Gemini AI Botman!</b>\n"
-        f"Menga istalgan mavzuda xohlagan savolingizni matn ko'rinishida yozishingiz, yoki rasm, ovoz, video yuborib tahlil qildirishingiz mumkin. Men cheksiz savollarga javob bera olaman! 🚀\n\n"
-        f"📖 <b>Botdan qanday foydalanamiz?</b>\n"
-        f"Bot qanday guruh va kanal boshqarish buyruqlariga ega ekanini ko'rish hamda ularning yozilishini real namunalar (misollar) bilan o'rganish uchun hoziroq <b>/help</b> buyrug'ini yuboring.\n\n"
-        f"🎛️ <b>Tezkor buyruqlar paneli (Slash Menyusi):</b>\n"
-        f"Buyruqlarni qo'lda yozib o'tirmaslik uchun yozish panelining o'ng tarafidagi <b>[/]</b> tugmasini bosing. O'sha yerdan buyruqni tanlasangiz, Telegram srazi yubormaydi, yoniga matn yoki @ belgisini yozishingizni kutib turadi!",
+        f"Menga istalgan mavzuda matn yozishingiz, rasm yoki media yuborishingiz mumkin.\n\n"
+        f"📖 Buyruqlar haqida batafsil ma'lumot olish uchun: <b>/help</b>\n"
+        f"🎛️ Aqlli boshqaruv panelini ochish uchun: <b>/menu</b> yuboring.",
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove()
     )
 
 
-@dp.message(Command("help", "menu", "panel"))
+@dp.message(Command("help"))
 async def cmd_help(message: Message) -> None:
+    """Faqat qo'llanmani ko'rsatuvchi alohida buyruq."""
     await message.answer(
-        "📖 <b>Bot buyruqlaridan toʻgʻri foydalanish boʻyicha qoʻllanma:</b>\n\n"
-        
-        "💡 <b>Tezkor maslahat:</b> Ushbu buyruqlarni qo'lda yozib o'tirmaslik va srazi ketib qolishini oldini olish uchun yozish panelingiz o'ng tarafidagi <b>[/]</b> tugmasini bosing. Telegram o'zi buyruqni panelga yozib, davomini yozishingizni kutadi!\n\n"
+        "📖 <b>Bot buyruqlaridan foydalanish qoʻllanmasi:</b>\n\n"
+        "🧠 <b>1. AI Buyruqlari:</b>\n"
+        "• <code>/imagine [tavsif]</code> — Rasm chizish\n"
+        "• <code>/video [tavsif]</code> — Video yaratish\n"
+        "• <code>/audio [matn]</code> — Matnni ovoz qilish\n\n"
+        "👥 <b>2. Guruh Admin Buyruqlari:</b>\n"
+        "• <code>/ban @username</code> — Bloklash\n"
+        "• <code>/unban @username</code> — Blokdan olish\n"
+        "• <code>/addadmin @username</code> — Admin qilish\n\n"
+        "🎛️ Buyruqlarni klaviaturadan toza chaqirish uchun <b>/menu</b> buyrug'idan foydalaning.",
+        parse_mode="HTML"
+    )
 
-        "🧠 <b>1. AI va Neyrotarmoq buyruqlari:</b>\n"
-        "• <b>Oddiy muloqot:</b> Shunchaki botning o'ziga matn yozing yoki rasm/ovoz yuboring.\n"
-        "• <b>Rasm chizish:</b> <code>/imagine [tavsif]</code> formatida yoziladi.\n"
-        "  └ <i>Namuna:</i> <code>/imagine xaker bolakay kosmosda, neon uslubida</code>\n"
-        "• <b>Video yaratish:</b> <code>/video [tavsif]</code> formatida yoziladi.\n"
-        "  └ <i>Namuna:</i> <code>/video flying eagle over mountains</code>\n"
-        "• <b>Matnni ovozga o'girish:</b> <code>/audio [matn]</code> formatida yoziladi.\n"
-        "  └ <i>Namuna:</i> <code>/audio Salom dasturlashni o'rganish juda qiziqarli</code>\n\n"
-        
-        "👥 <b>2. Guruh ma'murlari (Admin) buyruqlari:</b>\n"
-        "• <b>Ban (Bloklash):</b> <code>/ban @username</code> yoki xabarga reply qilib <code>/ban</code> deb yozing.\n"
-        "• <b>Unban (Blokdan olish):</b> <code>/unban @username</code> ko'rinishida yoziladi.\n"
-        "• <b>Mute (Sukut):</b> Xabarga reply qilib <code>/mute</code> deb yozing.\n"
-        "• <b>Unmute (Ovozni tiklash):</b> Xabarga reply qilib <code>/unmute</code> deb yozing.\n"
-        "• <b>Kick (Guruhdan chiqarish):</b> Xabarga reply qilib <code>/kick</code> deb yozing.\n"
-        "• <b>Admin tayinlash:</b> Xabarga reply qilib <code>/addadmin</code> deb yozing.\n"
-        "• <b>Adminlikdan olish:</b> Xabarga reply qilib <code>/removeadmin</code> deb yozing.\n\n"
-        
-        "📢 <b>3. Kanal boshqaruvi (Faqat Bot Egasi uchun):</b>\n"
-        "• <b>Post yuborish:</b> <code>/post @kanal [matn]</code> ko'rinishida yoziladi.\n"
-        "  └ <i>Namuna:</i> <code>/post @kanal Bugun loyihada ajoyib yangilik bor!</code>\n"
-        "• <b>Kanal nomini yangilash:</b> <code>/settitle @kanal [yangi nom]</code>\n"
-        "• <b>Kanal tavsifini yangilash:</b> <code>/setdesc @kanal [tavsif]</code>\n"
-        "• <b>Taklif havolasi (Invite Link):</b> <code>/invite @kanal</code>\n\n"
-        
-        "📌 <b>4. Xabarlar bilan ishlash va Tizim:</b>\n"
-        "• <b>Pin qilish:</b> Kerakli xabarga reply qilib <code>/pin</code> deb yozing.\n"
-        "• <b>Xabarni o'chirish:</b> Nojo'ya xabarga reply qilib <code>/deltmsg</code> deb yozsangiz, xabar o'chadi.\n"
-        "• <b>Xotirani tozalash:</b> AI suhbatini yangidan boshlash uchun shunchaki <code>/new</code> deb yozing.",
+
+@dp.message(Command("menu", "panel"))
+async def cmd_menu(message: Message) -> None:
+    """Mutlaqo alohida chiquvchi, xabar srazi ketib qolmaydigan inline boshqaruv paneli."""
+    
+    smart_inline_menu = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎨 Rasm (/imagine)", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/imagine ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
+                ),
+                InlineKeyboardButton(
+                    text="🎬 Video (/video)", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/video ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔊 Ovoz (/audio)", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/audio ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🚫 Ban berish", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/ban @", allow_group_chats=True)
+                ),
+                InlineKeyboardButton(
+                    text="✅ Bandan olish", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/unban @", allow_group_chats=True)
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐ Admin qo'shish", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/addadmin @", allow_group_chats=True)
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📢 Post yuborish", 
+                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/post @", allow_user_chats=True)
+                )
+            ]
+        ]
+    )
+
+    await message.answer(
+        "🎛️ <b>Tezkor aqlli boshqaruv paneli:</b>\n\n"
+        "Tugmalardan birini bossangiz, Telegram chat tanlashni so'raydi.\n"
+        "Chatni tanlaganingizda, yozish paneliga <b>toza slash bilan buyruq va @ belgisi</b> joylashadi. Matn srazi ketib qolmaydi, bemalol davomiga yuzerlik yoki tavsif yozib keyin yuborishingiz mumkin! 🚀",
         parse_mode="HTML",
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=smart_inline_menu
     )
 
 
@@ -301,7 +335,7 @@ async def cmd_info(message: Message) -> None:
 
 
 # ══════════════════════════════════════
-# FOYDALANUVCHI BOSHQARUVI (ADMIN)
+# ADMIN VA KANAL MODULLARI
 # ══════════════════════════════════════
 
 @dp.message(Command("ban"))
@@ -309,7 +343,6 @@ async def cmd_ban(message: Message) -> None:
     if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
         await message.reply("❌ Bu buyruqdan faqat guruh adminlari foydalana oladi.")
         return
-
     if not message.reply_to_message and len(message.text.split()) < 2:
         await message.answer("❗ Foydalanish: /ban @username yoki xabarga reply qiling")
         return
@@ -344,72 +377,12 @@ async def cmd_unban(message: Message) -> None:
         await message.answer(f"❌ Xatolik: {e}")
 
 
-@dp.message(Command("mute"))
-async def cmd_mute(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ Mute qilish uchun xabarga reply qiling.")
-        return
-    try:
-        user_id = message.reply_to_message.from_user.id
-        name = message.reply_to_message.from_user.full_name
-        await bot.restrict_chat_member(
-            message.chat.id, user_id,
-            permissions=ChatPermissions(can_send_messages=False)
-        )
-        await message.answer(f"🔇 <b>{name}</b> vaqtincha yozish huquqidan mahrum qilindi!", parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("unmute"))
-async def cmd_unmute(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ Unmute qilish uchun xabarga reply qiling.")
-        return
-    try:
-        user_id = message.reply_to_message.from_user.id
-        name = message.reply_to_message.from_user.full_name
-        await bot.restrict_chat_member(
-            message.chat.id, user_id,
-            permissions=ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True
-            )
-        )
-        await message.answer(f"🔊 <b>{name}</b> qayta yozish huquqiga ega bo'ldi!", parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("kick"))
-async def cmd_kick(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ Haydash uchun xabarga reply qiling.")
-        return
-    try:
-        user_id = message.reply_to_message.from_user.id
-        name = message.reply_to_message.from_user.full_name
-        await bot.ban_chat_member(message.chat.id, user_id)
-        await bot.unban_chat_member(message.chat.id, user_id)
-        await message.answer(f"👢 <b>{name}</b> guruhdan chiqarib yuborildi!", parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
 @dp.message(Command("addadmin"))
 async def cmd_addadmin(message: Message) -> None:
     if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
         return
     if not message.reply_to_message and len(message.text.split()) < 2:
-        await message.answer("❗ Foydalanish: /addadmin @username yoki xabarga reply qiling")
+        await message.answer("❗ Foydalanish: /addadmin @username")
         return
     try:
         if message.reply_to_message:
@@ -422,90 +395,12 @@ async def cmd_addadmin(message: Message) -> None:
             name = user.full_name
         await bot.promote_chat_member(
             message.chat.id, user_id,
-            can_manage_chat=True,
-            can_delete_messages=True,
-            can_manage_video_chats=True,
-            can_restrict_members=True,
-            can_change_info=True,
-            can_invite_users=True,
-            can_pin_messages=True
+            can_manage_chat=True, can_delete_messages=True, can_restrict_members=True, can_invite_users=True
         )
         await message.answer(f"⭐ <b>{name}</b> yangi admin etib tayinlandi!", parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Xatolik: {e}")
 
-
-@dp.message(Command("removeadmin"))
-async def cmd_removeadmin(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ Adminlikdan olish uchun xabarga reply qiling.")
-        return
-    try:
-        user_id = message.reply_to_message.from_user.id
-        name = message.reply_to_message.from_user.full_name
-        await bot.promote_chat_member(
-            message.chat.id, user_id,
-            can_manage_chat=False,
-            can_delete_messages=False,
-            can_manage_video_chats=False,
-            can_restrict_members=False,
-            can_change_info=False,
-            can_invite_users=False,
-            can_pin_messages=False
-        )
-        await message.answer(f"❌ <b>{name}</b> adminlik huquqlaridan mahrum qilindi!", parse_mode="HTML")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-# ══════════════════════════════════════
-# XABAR BOSHQARUVI
-# ══════════════════════════════════════
-
-@dp.message(Command("pin"))
-async def cmd_pin(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ Pin qilish uchun xabarga reply qiling.")
-        return
-    try:
-        await bot.pin_chat_message(message.chat.id, message.reply_to_message.message_id)
-        await message.answer("📌 Xabar yuqoriga mustahkamlandi!")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("unpin"))
-async def cmd_unpin(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    try:
-        await bot.unpin_chat_message(message.chat.id)
-        await message.answer("🔓 Pin xabar olib tashlandi!")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("deltmsg"))
-async def cmd_deltmsg(message: Message) -> None:
-    if not message.from_user or not await is_user_admin(message.chat.id, message.from_user.id):
-        return
-    if not message.reply_to_message:
-        await message.answer("❗ O'chirmoqchi bo'lgan xabarga reply qiling.")
-        return
-    try:
-        await bot.delete_message(message.chat.id, message.reply_to_message.message_id)
-        await message.delete()
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-# ══════════════════════════════════════
-# KANAL BOSHQARUVI
-# ══════════════════════════════════════
 
 @dp.message(Command("post"))
 async def cmd_post(message: Message) -> None:
@@ -522,53 +417,8 @@ async def cmd_post(message: Message) -> None:
         await message.answer(f"❌ Xatolik: {e}")
 
 
-@dp.message(Command("settitle"))
-async def cmd_settitle(message: Message) -> None:
-    if not message.from_user or message.from_user.id != OWNER_ID:
-        return
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 3:
-        await message.answer("❗ Foydalanish: /settitle @kanal Yangi nom")
-        return
-    try:
-        await bot.set_chat_title(parts[1], parts[2])
-        await message.answer("✅ Kanal nomi yangilandi!")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("setdesc"))
-async def cmd_setdesc(message: Message) -> None:
-    if not message.from_user or message.from_user.id != OWNER_ID:
-        return
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 3:
-        await message.answer("❗ Foydalanish: /setdesc @kanal Tavsif")
-        return
-    try:
-        await bot.set_chat_description(parts[1], parts[2])
-        await message.answer("✅ Kanal tavsifi o'zgartirildi!")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
-@dp.message(Command("invite"))
-async def cmd_invite(message: Message) -> None:
-    if not message.from_user or message.from_user.id != OWNER_ID:
-        return
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("❗ Foydalanish: /invite @kanal")
-        return
-    try:
-        link = await bot.create_chat_invite_link(parts[1])
-        await message.answer(f"🔗 Taklif havolasi:\n{link.invite_link}")
-    except Exception as e:
-        await message.answer(f"❌ Xatolik: {e}")
-
-
 # ══════════════════════════════════════
-# 🔊 AUDIO GENERATSIYA (/audio)
+# MULTIMEDIA GENERATSIYA MODULLARI
 # ══════════════════════════════════════
 
 @dp.message(Command("audio"))
@@ -577,14 +427,7 @@ async def cmd_audio(message: Message) -> None:
     if not text_to_speak:
         await message.reply("❗ Matn kiriting. Misol: <code>/audio Salom</code>", parse_mode="HTML")
         return
-
-    if len(text_to_speak) > 200:
-        await message.reply("❗ Matn 200 ta belgidan oshmasligi kerak.")
-        return
-
     status_msg = await message.reply("🔊 Audio tayyorlanmoqda...")
-    await bot.send_chat_action(message.chat.id, "upload_voice")
-
     try:
         encoded_text = quote(text_to_speak)
         audio_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=uz&client=tw-ob&q={encoded_text}"
@@ -592,24 +435,16 @@ async def cmd_audio(message: Message) -> None:
         await message.reply_audio(audio=audio_file, caption=f"🔊 Ovoz: {text_to_speak[:100]}")
         await status_msg.delete()
     except Exception as e:
-        logger.error("Audio xatosi: %s", e)
         await status_msg.edit_text("❌ Audio generatsiya qilib bo'lmadi.")
 
-
-# ══════════════════════════════════════
-# 🖼️ RASM GENERATSIYA (/imagine)
-# ══════════════════════════════════════
 
 @dp.message(Command("imagine"))
 async def cmd_imagine(message: Message) -> None:
     prompt = (message.text or "").replace("/imagine", "").strip()
     if not prompt:
-        await message.reply("❗ Rasm tavsifini kiriting. Misol: <code>/imagine neon cat</code>", parse_mode="HTML")
+        await message.reply("❗ Rasm tavsifini kiriting.", parse_mode="HTML")
         return
-
     status_msg = await message.reply("🎨 Rasm chizilmoqda...")
-    await bot.send_chat_action(message.chat.id, "upload_photo")
-
     try:
         encoded_prompt = quote(prompt)
         seed = random.randint(1, 99999)
@@ -618,13 +453,8 @@ async def cmd_imagine(message: Message) -> None:
         await message.reply_photo(photo=photo, caption=f"🖼 <b>Prompt:</b> {prompt[:200]}", parse_mode="HTML")
         await status_msg.delete()
     except Exception as e:
-        logger.error("Rasm xatosi: %s", e)
         await status_msg.edit_text("❌ Rasm yaratishda xatolik yuz berdi.")
 
-
-# ══════════════════════════════════════
-# 🎬 VIDEO GENERATSIYA (/video)
-# ══════════════════════════════════════
 
 @dp.message(Command("video"))
 async def cmd_video(message: Message) -> None:
@@ -632,10 +462,7 @@ async def cmd_video(message: Message) -> None:
     if not prompt:
         await message.reply("❗ Video tavsifini kiriting.", parse_mode="HTML")
         return
-
     status_msg = await message.reply("🎬 Video tayyorlanmoqda (15-30 soniya)...")
-    await bot.send_chat_action(message.chat.id, "upload_video")
-
     try:
         encoded_prompt = quote(prompt)
         video_url = f"https://text-to-video.pollinations.ai/{encoded_prompt}"
@@ -643,19 +470,17 @@ async def cmd_video(message: Message) -> None:
         await message.reply_video(video=video, caption=f"🎬 <b>Prompt:</b> {prompt[:200]}", parse_mode="HTML")
         await status_msg.delete()
     except Exception as e:
-        logger.error("Video xatosi: %s", e)
         await status_msg.edit_text("❌ Video yaratib bo'lmadi.")
 
 
 # ══════════════════════════════════════
-# 🤖 AI HANDLER (MULTIMODAL)
+# AI MULTIMODAL HANDLER
 # ══════════════════════════════════════
 
 @dp.message(F.content_type.in_({"text", "photo", "voice", "audio", "video", "document"}))
 async def multimodal_handler(message: Message) -> None:
     if message.text and message.text.startswith("/"):
         return
-
     if not message.from_user:
         return
 
@@ -684,21 +509,18 @@ async def multimodal_handler(message: Message) -> None:
             file = await bot.get_file(file_id)
             bio = await bot.download_file(file.file_path)
             media_bytes = bio.read()
-
         elif message.voice:
             file_id = message.voice.file_id
             mime_type = message.voice.mime_type or "audio/ogg"
             file = await bot.get_file(file_id)
             bio = await bot.download_file(file.file_path)
             media_bytes = bio.read()
-
         elif message.audio:
             file_id = message.audio.file_id
             mime_type = message.audio.mime_type or "audio/mpeg"
             file = await bot.get_file(file_id)
             bio = await bot.download_file(file.file_path)
             media_bytes = bio.read()
-
         elif message.video:
             if message.video.file_size and message.video.file_size > 20 * 1024 * 1024:
                 await message.reply("❗ Video hajmi 20 MB dan oshmasligi kerak.")
@@ -714,11 +536,8 @@ async def multimodal_handler(message: Message) -> None:
 
         response = await ask_gemini(user_id, user_text, media_bytes, mime_type)
         await send_long_message(message, response)
-
-    except asyncio.TimeoutError:
-        await message.reply("⏳ API so'rov vaqti tugadi.")
     except Exception as e:
-        logger.exception("Xato yuz berdi: %s", e)
+        logger.exception("Xato: %s", e)
         await message.reply("❌ Xatolik tufayli javob qaytarib bo'lmadi.")
 
 
@@ -729,24 +548,12 @@ async def multimodal_handler(message: Message) -> None:
 async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
     
-    # Barcha buyruqlarni to'liq Telegram toza [/] menyusiga yuklaymiz. 
-    # Bu yerda foydalanuvchi tugmani bossa, Telegram srazi yubormaydi, argument yozishni kutib turadi!
+    # Chap pastki burchakdagi "Menu" ro'yxati
     main_commands = [
         BotCommand(command="start", description="Botni ishga tushirish"),
-        BotCommand(command="help", description="📖 Namunalar bilan batafsil qo'llanma"),
-        BotCommand(command="new", description="🔄 AI suhbat xotirasini tozalash"),
-        BotCommand(command="imagine", description="🎨 [tavsif] — AI orqali rasm chizish"),
-        BotCommand(command="video", description="🎬 [tavsif] — Qisqa video yaratish"),
-        BotCommand(command="audio", description="🔊 [matn] — Matnni ovozga aylantirish"),
-        BotCommand(command="ban", description="🚫 [@username] — Guruhdan bloklash"),
-        BotCommand(command="unban", description="✅ [@username] — Blokdan chiqarish"),
-        BotCommand(command="post", description="📢 [@kanal] [matn] — Kanalga post yuborish"),
-        BotCommand(command="invite", description="🔗 [@kanal] — Taklif havolasini olish"),
-        BotCommand(command="settitle", description="📝 [@kanal] [nom] — Kanal nomini o'zgartirish"),
-        BotCommand(command="setdesc", description="ℹ️ [@kanal] [tavsif] — Kanal tavsifini yangilash"),
-        BotCommand(command="myid", description="🆔 Shaxsiy Telegram IDingizni ko'rish"),
-        BotCommand(command="info", description="📊 Chat haqida ma'lumot olish"),
-        BotCommand(command="model", description="⚙️ Joriy ishchi AI modelni ko'rish"),
+        BotCommand(command="help", description="📖 Buyruqlarni qo'llash bo'yicha qo'llanma"),
+        BotCommand(command="menu", description="🎛️ Aqlli boshqaruv panelini ochish"),
+        BotCommand(command="panel", description="🎛️ Tezkor boshqaruv paneli (Muqobil)"),
     ]
     try:
         await bot.set_my_commands(main_commands)
