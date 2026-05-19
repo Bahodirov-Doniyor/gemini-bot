@@ -13,6 +13,8 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     ChatPermissions, 
     Message, 
@@ -21,7 +23,7 @@ from aiogram.types import (
     ReplyKeyboardRemove, 
     InlineKeyboardMarkup, 
     InlineKeyboardButton,
-    SwitchInlineQueryChosenChat
+    CallbackQuery
 )
 from dotenv import load_dotenv
 
@@ -66,6 +68,15 @@ logger = logging.getLogger(__name__)
 
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+
+# ══════════════════════════════════════
+# FSM HOLATLARI (STATES)
+# ══════════════════════════════════════
+
+class AIForm(StatesGroup):
+    waiting_for_imagine = State()
+    waiting_for_video = State()
+    waiting_for_audio = State()
 
 # ══════════════════════════════════════
 # SUHBAT TARIXI (In-Memory)
@@ -213,11 +224,12 @@ def run_health_server() -> None:
 
 
 # ══════════════════════════════════════
-# ASOSIY BUYRUQLAR
+# ASOSIY BUYRUQLAR VA MENYU TIZIMI
 # ══════════════════════════════════════
 
 @dp.message(CommandStart())
-async def cmd_start(message: Message) -> None:
+async def cmd_start(message: Message, state: FSMContext) -> None:
+    await state.clear()
     name = message.from_user.full_name if message.from_user else "Foydalanuvchi"
     await message.answer(
         f"Salom, <b>{name}</b>! 👋\n\n"
@@ -231,8 +243,8 @@ async def cmd_start(message: Message) -> None:
 
 
 @dp.message(Command("help"))
-async def cmd_help(message: Message) -> None:
-    """Faqat qo'llanmani ko'rsatuvchi alohida buyruq."""
+async def cmd_help(message: Message, state: FSMContext) -> None:
+    await state.clear()
     await message.answer(
         "📖 <b>Bot buyruqlaridan foydalanish qoʻllanmasi:</b>\n\n"
         "🧠 <b>1. AI Buyruqlari:</b>\n"
@@ -243,69 +255,101 @@ async def cmd_help(message: Message) -> None:
         "• <code>/ban @username</code> — Bloklash\n"
         "• <code>/unban @username</code> — Blokdan olish\n"
         "• <code>/addadmin @username</code> — Admin qilish\n\n"
-        "🎛️ Buyruqlarni klaviaturadan toza chaqirish uchun <b>/menu</b> buyrug'idan foydalaning.",
+        "🎛️ Tugmalar orqali toza buyruq berish uchun <b>/menu</b> panelidan foydalaning.",
         parse_mode="HTML"
     )
 
 
 @dp.message(Command("menu", "panel"))
-async def cmd_menu(message: Message) -> None:
-    """Mutlaqo alohida chiquvchi, xabar srazi ketib qolmaydigan inline boshqaruv paneli."""
+async def cmd_menu(message: Message, state: FSMContext) -> None:
+    await state.clear()
     
-    smart_inline_menu = InlineKeyboardMarkup(
+    clean_inline_menu = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="🎨 Rasm (/imagine)", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/imagine ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
-                ),
-                InlineKeyboardButton(
-                    text="🎬 Video (/video)", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/video ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
-                )
+                InlineKeyboardButton(text="🎨 Rasm chizish", callback_data="btn_imagine"),
+                InlineKeyboardButton(text="🎬 Video yaratish", callback_data="btn_video")
             ],
             [
-                InlineKeyboardButton(
-                    text="🔊 Ovoz (/audio)", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/audio ", allow_user_chats=True, allow_group_chats=True, allow_channel_chats=False)
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🚫 Ban berish", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/ban @", allow_group_chats=True)
-                ),
-                InlineKeyboardButton(
-                    text="✅ Bandan olish", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/unban @", allow_group_chats=True)
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⭐ Admin qo'shish", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/addadmin @", allow_group_chats=True)
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📢 Post yuborish", 
-                    switch_inline_query_chosen_chat=SwitchInlineQueryChosenChat(query="/post @", allow_user_chats=True)
-                )
+                InlineKeyboardButton(text="🔊 Matnni ovoz qilish", callback_data="btn_audio")
             ]
         ]
     )
 
     await message.answer(
-        "🎛️ <b>Tezkor aqlli boshqaruv paneli:</b>\n\n"
-        "Tugmalardan birini bossangiz, Telegram chat tanlashni so'raydi.\n"
-        "Chatni tanlaganingizda, yozish paneliga <b>toza slash bilan buyruq va @ belgisi</b> joylashadi. Matn srazi ketib qolmaydi, bemalol davomiga yuzerlik yoki tavsif yozib keyin yuborishingiz mumkin! 🚀",
+        "🎛️ <b>Tezkor AI boshqaruv paneli:</b>\n\n"
+        "Kerakli xizmat tugmasini bosing va hech qanday ortiqcha belgilarsiz toza matn kiritib yuboring! 🔥",
         parse_mode="HTML",
-        reply_markup=smart_inline_menu
+        reply_markup=clean_inline_menu
     )
 
 
+# ══════════════════════════════════════
+# INLINE TUGMALAR HANDLERLARI (CALLBACK)
+# ══════════════════════════════════════
+
+@dp.callback_query(F.data == "btn_imagine")
+async def process_btn_imagine(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AIForm.waiting_for_imagine)
+    await callback.message.answer("🎨 <b>Rasm uchun toza tavsif (prompt) yuboring:</b>\n<i>(Masalan: neon uslubidagi kiber mushuk)</i>", parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "btn_video")
+async def process_btn_video(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AIForm.waiting_for_video)
+    await callback.message.answer("🎬 <b>Video uchun toza tavsif (prompt) yuboring:</b>", parse_mode="HTML")
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "btn_audio")
+async def process_btn_audio(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AIForm.waiting_for_audio)
+    await callback.message.answer("🔊 <b>Ovozga aylantirish uchun toza matn yuboring:</b>", parse_mode="HTML")
+    await callback.answer()
+
+
+# ══════════════════════════════════════
+# FSM MATN QABUL QILISH JORALARI
+# ══════════════════════════════════════
+
+@dp.message(AIForm.waiting_for_imagine)
+async def ai_imagine_state(message: Message, state: FSMContext) -> None:
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+    await state.clear()
+    message.text = f"/imagine {message.text}"
+    await cmd_imagine(message)
+
+
+@dp.message(AIForm.waiting_for_video)
+async def ai_video_state(message: Message, state: FSMContext) -> None:
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+    await state.clear()
+    message.text = f"/video {message.text}"
+    await cmd_video(message)
+
+
+@dp.message(AIForm.waiting_for_audio)
+async def ai_audio_state(message: Message, state: FSMContext) -> None:
+    if message.text and message.text.startswith("/"):
+        await state.clear()
+        return
+    await state.clear()
+    message.text = f"/audio {message.text}"
+    await cmd_audio(message)
+
+
+# ══════════════════════════════════════
+# SIZNING STANDART SIZMA BUYRUQLARINGIZ
+# ══════════════════════════════════════
+
 @dp.message(Command("new"))
-async def cmd_new(message: Message) -> None:
+async def cmd_new(message: Message, state: FSMContext) -> None:
+    await state.clear()
     if message.from_user:
         clear_history(message.from_user.id)
     await message.answer("🔄 Yangi suhbat boshlandi! Kontekst tozalandi.")
@@ -335,7 +379,7 @@ async def cmd_info(message: Message) -> None:
 
 
 # ══════════════════════════════════════
-# ADMIN VA KANAL MODULLARI
+# GURUH MA'MURIYATI MODULLARI
 # ══════════════════════════════════════
 
 @dp.message(Command("ban"))
@@ -418,7 +462,7 @@ async def cmd_post(message: Message) -> None:
 
 
 # ══════════════════════════════════════
-# MULTIMEDIA GENERATSIYA MODULLARI
+# MULTIMEDIA GENERATSIYA FUNKSIYALARI
 # ══════════════════════════════════════
 
 @dp.message(Command("audio"))
@@ -474,16 +518,17 @@ async def cmd_video(message: Message) -> None:
 
 
 # ══════════════════════════════════════
-# AI MULTIMODAL HANDLER
+# AI MULTIMODAL HANDLER (KATTA CHATLAR)
 # ══════════════════════════════════════
 
 @dp.message(F.content_type.in_({"text", "photo", "voice", "audio", "video", "document"}))
-async def multimodal_handler(message: Message) -> None:
+async def multimodal_handler(message: Message, state: FSMContext) -> None:
     if message.text and message.text.startswith("/"):
         return
     if not message.from_user:
         return
 
+    # Guruhlarda faqat teglanganda yoki reply bo'lganda ishlashi uchun
     if message.chat.type in ("group", "supergroup"):
         bot_info = await bot.get_me()
         is_mentioned = message.text and f"@{bot_info.username}" in message.text
@@ -548,12 +593,11 @@ async def multimodal_handler(message: Message) -> None:
 async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
     
-    # Chap pastki burchakdagi "Menu" ro'yxati
+    # Chap pastki burchakdagi ko'k standart Menu tugmasi ro'yxati
     main_commands = [
         BotCommand(command="start", description="Botni ishga tushirish"),
         BotCommand(command="help", description="📖 Buyruqlarni qo'llash bo'yicha qo'llanma"),
-        BotCommand(command="menu", description="🎛️ Aqlli boshqaruv panelini ochish"),
-        BotCommand(command="panel", description="🎛️ Tezkor boshqaruv paneli (Muqobil)"),
+        BotCommand(command="menu", description="🎛️ Toza AI boshqaruv panelini ochish"),
     ]
     try:
         await bot.set_my_commands(main_commands)
