@@ -255,7 +255,7 @@ async def cmd_help(message: Message, state: FSMContext) -> None:
         "• <code>/ban @username</code> — Bloklash\n"
         "• <code>/unban @username</code> — Blokdan olish\n"
         "• <code>/addadmin @username</code> — Admin qilish\n\n"
-        "🎛️ Tugmalar orqali toza buyruq berish uchun <b>/menu</b> panelidan foydalaning.",
+        "🎛️ Tugmalar orqali toza buyruq berish uchun <b>/menu</b> panelidan foydanlaning.",
         parse_mode="HTML"
     )
 
@@ -344,7 +344,7 @@ async def ai_audio_state(message: Message, state: FSMContext) -> None:
 
 
 # ══════════════════════════════════════
-# SIZNING STANDART SIZMA BUYRUQLARINGIZ
+# STANDART BUYRUQLAR
 # ══════════════════════════════════════
 
 @dp.message(Command("new"))
@@ -528,7 +528,11 @@ async def multimodal_handler(message: Message, state: FSMContext) -> None:
     if not message.from_user:
         return
 
-    # Guruhlarda faqat teglanganda yoki reply bo'lganda ishlashi uchun
+    # AGAR FOYDALANUVCHI HOZIR STATE ICHIDA BO'LSA, MULTIMODAL HANDLER ARALASHMAYDI
+    current_state = await state.get_state()
+    if current_state is not None:
+        return
+
     if message.chat.type in ("group", "supergroup"):
         bot_info = await bot.get_me()
         is_mentioned = message.text and f"@{bot_info.username}" in message.text
@@ -593,7 +597,6 @@ async def multimodal_handler(message: Message, state: FSMContext) -> None:
 async def main() -> None:
     threading.Thread(target=run_health_server, daemon=True).start()
     
-    # Chap pastki burchakdagi ko'k standart Menu tugmasi ro'yxati
     main_commands = [
         BotCommand(command="start", description="Botni ishga tushirish"),
         BotCommand(command="help", description="📖 Buyruqlarni qo'llash bo'yicha qo'llanma"),
